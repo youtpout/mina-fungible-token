@@ -25,6 +25,8 @@ use mina_runtime::Backend;
 use mina_signer::{CompressedPubKey, Signature};
 use serde::{Deserialize, Serialize};
 
+pub mod network;
+
 static BACKEND: OnceLock<Backend> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
@@ -91,6 +93,12 @@ pub fn transfer_call_data(
         method_name,
         blinding,
     ])
+}
+
+pub fn derive_token_id_base58(token_address: CompressedPubKey) -> String {
+    let token_id = AccountId::new(token_address, TokenId::default()).derive_token_id();
+    let token_id: mina_p2p_messages::v2::TokenIdKeyHash = token_id.into();
+    token_id.to_string()
 }
 
 fn empty_account_update_body(
@@ -456,5 +464,19 @@ mod tests {
         ));
         assert_eq!(command.fee_payer.body.nonce, Nonce::from_u32(7));
         assert_eq!(command.fee_payer.body.fee, Fee::from_u64(100_000_000));
+    }
+
+    #[test]
+    fn derived_token_id_matches_o1js() {
+        let token = mina_signer::PubKey::from_address(
+            "B62qmnY6m4c6bdgSPnQGZriSaj9vuSjsfh6qkveGTsFX3yGA5ywRaja",
+        )
+        .expect("valid token")
+        .into_compressed();
+
+        assert_eq!(
+            derive_token_id_base58(token),
+            "yJmwcJGYKA5x5ReFVWnE3eCZnPJj45P92oJcTADvGXWpLNCMk9"
+        );
     }
 }
