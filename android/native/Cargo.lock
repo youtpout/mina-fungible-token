@@ -2049,6 +2049,7 @@ dependencies = [
 name = "mina-token-mobile"
 version = "0.1.0"
 dependencies = [
+ "ark-ff",
  "jni",
  "mina-curves",
  "mina-p2p-messages",
@@ -2056,6 +2057,7 @@ dependencies = [
  "mina-signer",
  "mina-tree",
  "poseidon",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",

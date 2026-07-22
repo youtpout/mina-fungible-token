@@ -5,6 +5,7 @@ use std::{
     time::Instant,
 };
 
+use ark_ff::UniformRand;
 use jni::{
     errors::ThrowRuntimeExAndDefault,
     objects::{JClass, JString},
@@ -33,7 +34,7 @@ use mina_runtime::{
     Backend, BackendRequest, BackendResponse, NetworkId, SignZkappCommandRequest,
     SignedZkappCommandResponse, Versioned,
 };
-use mina_signer::{CompressedPubKey, Signature};
+use mina_signer::{CompressedPubKey, Keypair, SecKey, Signature};
 use serde::{Deserialize, Serialize};
 
 pub mod network;
@@ -389,9 +390,77 @@ fn transfer(request_json: &str) -> String {
         });
     }
 
+    let preflight = (|| -> Result<(ZkAppCommand, network::NetworkSnapshot), String> {
+        let secret = SecKey::from_base58(&request.sender_private_key)
+            .map_err(|_| "the sender private key is invalid".to_owned())?;
+        let keypair = Keypair::try_from(secret)
+            .map_err(|_| "the sender private key is invalid".to_owned())?;
+        let sender = keypair.public.into_compressed();
+        let receiver = mina_signer::PubKey::from_address(&request.receiver)
+            .map_err(|_| "the receiver address is invalid".to_owned())?
+            .into_compressed();
+        let token = mina_signer::PubKey::from_address(&request.token_address)
+            .map_err(|_| "the token contract address is invalid".to_owned())?
+            .into_compressed();
+        let amount = request
+            .amount
+            .parse::<u64>()
+            .map_err(|_| "the amount is invalid".to_owned())?;
+        let token_id = derive_token_id_base58(token.clone());
+        let snapshot = network::fetch_network_snapshot(
+            &request.graphql_url,
+            &sender.clone().into_address(),
+            &request.token_address,
+            &request.receiver,
+            &token_id,
+        )?;
+        if snapshot.paused {
+            return Err("the fungible token contract is paused".to_owned());
+        }
+        if !snapshot.receiver_exists && !request.fund_receiver {
+            return Err(
+                "the receiver token account does not exist; enable account creation funding"
+                    .to_owned(),
+            );
+        }
+        let fund_receiver = request.fund_receiver && !snapshot.receiver_exists;
+        let blinding = Fp::rand(&mut rand::thread_rng());
+        let command = build_unsigned_transfer_command(
+            sender,
+            receiver,
+            token,
+            amount,
+            100_000_000,
+            snapshot.fee_payer_nonce,
+            fund_receiver,
+            snapshot.verification_key_hash,
+            blinding,
+        );
+        Ok((command, snapshot))
+    })();
+    let (command, snapshot) = match preflight {
+        Ok(result) => result,
+        Err(message) => {
+            return response_json(NativeResponse {
+                status: "error",
+                message,
+                timings_ms: Timings::pending(started),
+            });
+        }
+    };
+    let account_updates = command.account_updates.0.len()
+        + command.account_updates.0[command.account_updates.0.len() - 1]
+            .elt
+            .calls
+            .0
+            .len();
+
     response_json(NativeResponse {
         status: "notReady",
-        message: "The parameters are valid. Native transfer construction and proving are not enabled yet; no transaction was submitted.".to_owned(),
+        message: format!(
+            "Devnet preflight succeeded at nonce {} and built {account_updates} account updates. Native witness generation is not enabled yet; no transaction was submitted.",
+            snapshot.fee_payer_nonce
+        ),
         timings_ms: Timings::pending(started),
     })
 }
