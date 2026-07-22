@@ -31,15 +31,23 @@ use mina_p2p_messages::v2::{
     MinaBaseZkappCommandTStableV1WireStableV1, PicklesProofProofsVerifiedMaxStableV2,
 };
 use mina_runtime::{
-    Backend, BackendRequest, BackendResponse, NetworkId, SignZkappCommandRequest,
-    SignedZkappCommandResponse, Versioned,
+    Backend, BackendRequest, BackendResponse, NetworkId, ProveCircuitRequest, ResourceId,
+    SignZkappCommandRequest, SignedZkappCommandResponse, Versioned,
 };
 use mina_signer::{CompressedPubKey, Keypair, SecKey, Signature};
 use serde::{Deserialize, Serialize};
 
 pub mod network;
+pub mod witness;
 
 static BACKEND: OnceLock<Backend> = OnceLock::new();
+static COMPILED_TOKEN: OnceLock<Result<CompiledToken, String>> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+struct CompiledToken {
+    transfer_circuit_id: ResourceId,
+    verification_key_hash: Fp,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,6 +107,37 @@ impl Timings {
 
 fn backend() -> &'static Backend {
     BACKEND.get_or_init(Backend::default)
+}
+
+fn compiled_token() -> Result<CompiledToken, String> {
+    COMPILED_TOKEN
+        .get_or_init(|| {
+            let expected_hash = witness::verification_key_hash()?;
+            let transfer_branch = witness::transfer_branch()?;
+            let response = backend()
+                .compile_program(witness::compile_request()?)
+                .map_err(|error| error.to_string())?;
+            let branch = response
+                .branches
+                .get(transfer_branch)
+                .ok_or_else(|| "the compiled FungibleToken transfer branch is missing".to_owned())?;
+            let compiled_hash = branch
+                .verification_key_hash
+                .as_deref()
+                .ok_or_else(|| "the native compiler did not return a verification key".to_owned())?
+                .parse::<Fp>()
+                .map_err(|_| "the native compiler returned an invalid verification key hash".to_owned())?;
+            if compiled_hash != expected_hash {
+                return Err(format!(
+                    "native/o1js FungibleToken verification key mismatch: expected {expected_hash}, got {compiled_hash}"
+                ));
+            }
+            Ok(CompiledToken {
+                transfer_circuit_id: branch.circuit_id,
+                verification_key_hash: compiled_hash,
+            })
+        })
+        .clone()
 }
 
 pub fn transfer_call_data(
@@ -162,10 +201,10 @@ fn forest_node(
     WithStackHash {
         elt: Tree {
             account_update,
-            account_update_digest: MutableFp::new(Fp::from(0u64)),
+            account_update_digest: MutableFp::empty(),
             calls,
         },
-        stack_hash: MutableFp::new(Fp::from(0u64)),
+        stack_hash: MutableFp::empty(),
     }
 }
 
@@ -390,7 +429,7 @@ fn transfer(request_json: &str) -> String {
         });
     }
 
-    let preflight = (|| -> Result<(ZkAppCommand, network::NetworkSnapshot), String> {
+    let preflight = (|| -> Result<_, String> {
         let secret = SecKey::from_base58(&request.sender_private_key)
             .map_err(|_| "the sender private key is invalid".to_owned())?;
         let keypair = Keypair::try_from(secret)
@@ -426,9 +465,9 @@ fn transfer(request_json: &str) -> String {
         let fund_receiver = request.fund_receiver && !snapshot.receiver_exists;
         let blinding = Fp::rand(&mut rand::thread_rng());
         let command = build_unsigned_transfer_command(
-            sender,
-            receiver,
-            token,
+            sender.clone(),
+            receiver.clone(),
+            token.clone(),
             amount,
             100_000_000,
             snapshot.fee_payer_nonce,
@@ -436,9 +475,9 @@ fn transfer(request_json: &str) -> String {
             snapshot.verification_key_hash,
             blinding,
         );
-        Ok((command, snapshot))
+        Ok((command, snapshot, sender, receiver, token, amount, blinding))
     })();
-    let (command, snapshot) = match preflight {
+    let (mut command, snapshot, sender, receiver, token, amount, blinding) = match preflight {
         Ok(result) => result,
         Err(message) => {
             return response_json(NativeResponse {
@@ -448,20 +487,126 @@ fn transfer(request_json: &str) -> String {
             });
         }
     };
-    let account_updates = command.account_updates.0.len()
-        + command.account_updates.0[command.account_updates.0.len() - 1]
-            .elt
-            .calls
+    let compile_started = Instant::now();
+    let compiled = match compiled_token() {
+        Ok(compiled) => compiled,
+        Err(message) => {
+            return response_json(NativeResponse {
+                status: "error",
+                message,
+                timings_ms: Timings {
+                    compile: Some(compile_started.elapsed().as_millis()),
+                    ..Timings::pending(started)
+                },
+            });
+        }
+    };
+    let compile_ms = compile_started.elapsed().as_millis();
+    if snapshot.verification_key_hash != compiled.verification_key_hash {
+        return response_json(NativeResponse {
+            status: "error",
+            message: format!(
+                "the deployed token verification key {} does not match the embedded o1js 2.15 FungibleToken key {}",
+                snapshot.verification_key_hash, compiled.verification_key_hash
+            ),
+            timings_ms: Timings {
+                compile: Some(compile_ms),
+                ..Timings::pending(started)
+            },
+        });
+    }
+
+    let proving_started = Instant::now();
+    let proof = (|| -> Result<String, String> {
+        let token_update = command
+            .account_updates
             .0
-            .len();
+            .last()
+            .ok_or_else(|| "the transfer command has no token update".to_owned())?;
+        let account_update_hash = token_update
+            .elt
+            .account_update_digest
+            .get()
+            .ok_or_else(|| "the token account update hash is missing".to_owned())?;
+        let calls_hash = token_update.elt.calls.hash();
+        let witness = witness::generate_transfer_witness(witness::TransferWitnessInput {
+            account_update_hash,
+            calls_hash,
+            token_x: token.x,
+            token_is_odd: token.is_odd,
+            sender_x: sender.x,
+            sender_is_odd: sender.is_odd,
+            receiver_x: receiver.x,
+            receiver_is_odd: receiver.is_odd,
+            amount,
+            blinding,
+        })?;
+        let response = backend()
+            .prove_circuit(ProveCircuitRequest {
+                circuit_id: compiled.transfer_circuit_id,
+                witness,
+            })
+            .map_err(|error| error.to_string())?;
+        response
+            .transaction_proof
+            .ok_or_else(|| "the native prover did not return a Mina transaction proof".to_owned())
+    })();
+    let transaction_proof = match proof {
+        Ok(proof) => proof,
+        Err(message) => {
+            return response_json(NativeResponse {
+                status: "error",
+                message,
+                timings_ms: Timings {
+                    compile: Some(compile_ms),
+                    proving: Some(proving_started.elapsed().as_millis()),
+                    ..Timings::pending(started)
+                },
+            });
+        }
+    };
+    let proving_ms = proving_started.elapsed().as_millis();
+    if let Err(message) = attach_transaction_proof(&mut command, &transaction_proof) {
+        return response_json(NativeResponse {
+            status: "error",
+            message,
+            timings_ms: Timings {
+                compile: Some(compile_ms),
+                proving: Some(proving_ms),
+                ..Timings::pending(started)
+            },
+        });
+    }
+
+    let signing_started = Instant::now();
+    let signed = sign_transfer_command(&command, &request.sender_private_key);
+    let signature_ms = signing_started.elapsed().as_millis();
+    if let Err(message) = signed {
+        return response_json(NativeResponse {
+            status: "error",
+            message,
+            timings_ms: Timings {
+                compile: Some(compile_ms),
+                proving: Some(proving_ms),
+                signature: Some(signature_ms),
+                ..Timings::pending(started)
+            },
+        });
+    }
 
     response_json(NativeResponse {
         status: "notReady",
         message: format!(
-            "Devnet preflight succeeded at nonce {} and built {account_updates} account updates. Native witness generation is not enabled yet; no transaction was submitted.",
-            snapshot.fee_payer_nonce
+            "Native FungibleToken.transfer proof and signatures were generated at nonce {}. Network submission is not enabled yet.",
+            snapshot.fee_payer_nonce,
         ),
-        timings_ms: Timings::pending(started),
+        timings_ms: Timings {
+            compile: Some(compile_ms),
+            proving: Some(proving_ms),
+            signature: Some(signature_ms),
+            submit: None,
+            total: started.elapsed().as_millis(),
+        },
     })
 }
 
@@ -700,6 +845,52 @@ mod tests {
     }
 
     #[test]
+    fn transfer_command_hashes_match_the_o1js_witness() {
+        let sender = mina_signer::PubKey::from_address(
+            "B62qkj5CSRx9qWwYtHUWaYp5M3whGuhavCmZWBwsTAK9Du7xsq1NgUb",
+        )
+        .expect("valid sender")
+        .into_compressed();
+        let receiver = mina_signer::PubKey::from_address(
+            "B62qpTLWDznvPzyrn4ZZDhZpXP1WwjSE4UBGvPfEsHSSYHhvGXnoqzn",
+        )
+        .expect("valid receiver")
+        .into_compressed();
+        let token = mina_signer::PubKey::from_address(
+            "B62qqFUFipaDDuswoeyaYS5ox4Z2dUBBWvNjKNTuDjenjTGRakjbL12",
+        )
+        .expect("valid token")
+        .into_compressed();
+        let command = build_unsigned_transfer_command(
+            sender,
+            receiver,
+            token,
+            1_234_567_890,
+            100_000_000,
+            7,
+            true,
+            witness::verification_key_hash().expect("verification key"),
+            "8526403581930790070278492913739709551282841087180981068687412600503419936070"
+                .parse()
+                .expect("blinding"),
+        );
+        let token_update = command.account_updates.0.last().expect("token update");
+        assert_eq!(
+            token_update
+                .elt
+                .account_update_digest
+                .get()
+                .expect("account update hash")
+                .to_string(),
+            "24504322254444717959786765293920362283340952391346541349956423912974353236312"
+        );
+        assert_eq!(
+            token_update.elt.calls.hash().to_string(),
+            "8251449290756981619132135748088612520442188699884439878052008043642591254857"
+        );
+    }
+
+    #[test]
     fn attaches_the_proof_then_signs_every_sender_update() {
         let keypair = Keypair::try_from(SecKey::from_base58(PRIVATE_KEY).expect("valid secret"))
             .expect("valid keypair");
@@ -738,5 +929,48 @@ mod tests {
         let signed = sign_transfer_command(&command, PRIVATE_KEY).expect("command must sign");
         assert_eq!(signed.signed_account_updates, 2);
         assert!(!signed.binprot_base64.is_empty());
+    }
+
+    #[test]
+    #[ignore = "compiles all eleven FungibleToken methods and creates a native Pickles proof"]
+    fn compiles_and_proves_the_native_transfer_circuit() {
+        let field = |value: &str| value.parse::<Fp>().expect("field test vector");
+        let compiled = compiled_token().expect("compiled FungibleToken program");
+        assert_eq!(
+            compiled.verification_key_hash.to_string(),
+            "11275266297357989434659649579180929660472107786900344600948115953037388411671"
+        );
+        let witness = witness::generate_transfer_witness(witness::TransferWitnessInput {
+            account_update_hash: field(
+                "11909561140019905098978899476582907211622221136408647825565176977949056361901",
+            ),
+            calls_hash: field(
+                "7652688051181415380811715514734574835653779492253782967014461790261901546813",
+            ),
+            token_x: field(
+                "2919996120512407313014062828808255422013969845275374011406132452783934981066",
+            ),
+            token_is_odd: false,
+            sender_x: field(
+                "26128929354271999245285962662286734919718711533760999607904852494858390193731",
+            ),
+            sender_is_odd: false,
+            receiver_x: field(
+                "28755616151314178074317148383765615429855032205626421959078684078997276329907",
+            ),
+            receiver_is_odd: true,
+            amount: 777,
+            blinding: field(
+                "8554297942514439850942263858623548274610807464913380485764394084910558078826",
+            ),
+        })
+        .expect("transfer witness");
+        let proof = backend()
+            .prove_circuit(ProveCircuitRequest {
+                circuit_id: compiled.transfer_circuit_id,
+                witness,
+            })
+            .expect("native transfer proof");
+        assert!(proof.transaction_proof.is_some());
     }
 }

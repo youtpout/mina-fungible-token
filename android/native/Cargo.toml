@@ -9,12 +9,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ark-ff = "0.5"
+flate2 = "1"
 jni = "0.22.4"
 ledger = { package = "mina-tree", path = "../../../mina-rust/crates/ledger" }
 mina-curves = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 mina-p2p-messages = { path = "../../../mina-rust/crates/p2p-messages" }
 mina-runtime = { path = "../../../mina-rust/crates/mina-runtime" }
 mina-signer = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
+pickles = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 poseidon = { path = "../../../mina-rust/poseidon" }
 reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rand = "0.8"
