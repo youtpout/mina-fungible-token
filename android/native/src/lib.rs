@@ -1,4 +1,9 @@
-use std::{panic::catch_unwind, sync::OnceLock, time::Instant};
+use std::{
+    cell::Cell,
+    panic::catch_unwind,
+    sync::{Arc, OnceLock},
+    time::Instant,
+};
 
 use jni::{
     errors::ThrowRuntimeExAndDefault,
@@ -21,7 +26,13 @@ use ledger::{
     AccountId, MutableFp, TokenId,
 };
 use mina_curves::pasta::Fp;
-use mina_runtime::Backend;
+use mina_p2p_messages::v2::{
+    MinaBaseZkappCommandTStableV1WireStableV1, PicklesProofProofsVerifiedMaxStableV2,
+};
+use mina_runtime::{
+    Backend, BackendRequest, BackendResponse, NetworkId, SignZkappCommandRequest,
+    SignedZkappCommandResponse, Versioned,
+};
 use mina_signer::{CompressedPubKey, Signature};
 use serde::{Deserialize, Serialize};
 
@@ -40,12 +51,28 @@ struct TransferRequest {
     fund_receiver: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BalanceRequest {
+    address: String,
+    token_address: String,
+    graphql_url: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NativeResponse {
     status: &'static str,
     message: String,
     timings_ms: Timings,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BalanceResponse {
+    status: &'static str,
+    balance: Option<String>,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -255,6 +282,63 @@ pub fn build_unsigned_transfer_command(
     }
 }
 
+pub fn attach_transaction_proof(
+    command: &mut ZkAppCommand,
+    transaction_proof: &str,
+) -> Result<(), String> {
+    let proof: PicklesProofProofsVerifiedMaxStableV2 =
+        serde_json::from_value(serde_json::Value::String(transaction_proof.to_owned()))
+            .map_err(|error| format!("the Mina transaction proof is invalid: {error}"))?;
+    attach_decoded_proof(command, Arc::new(proof))
+}
+
+fn attach_decoded_proof(
+    command: &mut ZkAppCommand,
+    proof: Arc<PicklesProofProofsVerifiedMaxStableV2>,
+) -> Result<(), String> {
+    let attached = Cell::new(0usize);
+    command.account_updates = command.account_updates.map_to(|account_update| {
+        if matches!(
+            account_update.body.authorization_kind,
+            AuthorizationKind::Proof(_)
+        ) {
+            attached.set(attached.get() + 1);
+            let mut account_update = account_update.clone();
+            account_update.authorization = Control::Proof(Arc::clone(&proof));
+            return account_update;
+        }
+        account_update.clone()
+    });
+    let attached = attached.get();
+    if attached != 1 {
+        return Err(format!(
+            "the transfer command must contain exactly one proved account update, found {attached}"
+        ));
+    }
+    command.account_updates.ensure_hashed();
+    Ok(())
+}
+
+pub fn sign_transfer_command(
+    command: &ZkAppCommand,
+    private_key: &str,
+) -> Result<SignedZkappCommandResponse, String> {
+    let command: MinaBaseZkappCommandTStableV1WireStableV1 = command.into();
+    let response = backend()
+        .execute(Versioned::current(BackendRequest::SignZkappCommand(
+            SignZkappCommandRequest {
+                private_key: private_key.to_owned(),
+                network: NetworkId::Testnet,
+                command,
+            },
+        )))
+        .map_err(|error| error.to_string())?;
+    match response.payload {
+        BackendResponse::ZkappCommandSigned(response) => Ok(response),
+        _ => Err("the native backend returned an unexpected signing response".to_owned()),
+    }
+}
+
 fn response_json(response: NativeResponse) -> String {
     serde_json::to_string_pretty(&response)
         .unwrap_or_else(|error| format!(r#"{{"status":"error","message":"{error}"}}"#))
@@ -312,6 +396,38 @@ fn transfer(request_json: &str) -> String {
     })
 }
 
+fn token_balance(request_json: &str) -> String {
+    let result = (|| -> Result<String, String> {
+        let request: BalanceRequest = serde_json::from_str(request_json)
+            .map_err(|error| format!("invalid parameters: {error}"))?;
+        if !request.graphql_url.starts_with("https://") {
+            return Err("the GraphQL endpoint must use HTTPS".to_owned());
+        }
+        mina_signer::PubKey::from_address(&request.address)
+            .map_err(|_| "the selected address is invalid".to_owned())?;
+        let token = mina_signer::PubKey::from_address(&request.token_address)
+            .map_err(|_| "the token contract address is invalid".to_owned())?
+            .into_compressed();
+        let token_id = derive_token_id_base58(token);
+        network::fetch_token_balance(&request.graphql_url, &request.address, &token_id)
+    })();
+    let response = match result {
+        Ok(balance) => BalanceResponse {
+            status: "ok",
+            message: "Token balance loaded".to_owned(),
+            balance: Some(balance),
+        },
+        Err(message) => BalanceResponse {
+            status: "error",
+            message,
+            balance: None,
+        },
+    };
+    serde_json::to_string(&response).unwrap_or_else(|error| {
+        format!(r#"{{"status":"error","message":"{error}","balance":null}}"#)
+    })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_lumina_minatokennative_MainActivity_nativeBackendInfo<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -348,9 +464,29 @@ pub extern "system" fn Java_com_lumina_minatokennative_MainActivity_nativeTransf
         .resolve::<ThrowRuntimeExAndDefault>()
 }
 
+#[no_mangle]
+pub extern "system" fn Java_com_lumina_minatokennative_MainActivity_nativeTokenBalance<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    request_json: JString<'local>,
+) -> JString<'local> {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<_> {
+            let request_chars = request_json.mutf8_chars(env)?;
+            let request_json = request_chars.to_str().to_owned();
+            let value = catch_unwind(|| token_balance(&request_json))
+                .unwrap_or_else(|_| "The native Rust backend panicked".to_owned());
+            JString::from_str(env, value)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mina_signer::{Keypair, SecKey};
+
+    const PRIVATE_KEY: &str = "EKFPQBAbjYkjM6p6fEaZAzufQgQs3spvUw1Uyq2Ghta81cpKrfGg";
 
     #[test]
     fn rejects_invalid_addresses_without_echoing_the_private_key() {
@@ -368,6 +504,20 @@ mod tests {
         );
         assert!(response.contains("receiver"));
         assert!(!response.contains(private_key));
+    }
+
+    #[test]
+    fn rejects_an_invalid_balance_address_before_network_access() {
+        let response = token_balance(
+            &serde_json::json!({
+                "address": "invalid",
+                "tokenAddress": "B62token",
+                "graphqlUrl": "https://example.test/graphql"
+            })
+            .to_string(),
+        );
+        assert!(response.contains("selected address is invalid"));
+        assert!(response.contains("\"balance\":null"));
     }
 
     #[test]
@@ -478,5 +628,46 @@ mod tests {
             derive_token_id_base58(token),
             "yJmwcJGYKA5x5ReFVWnE3eCZnPJj45P92oJcTADvGXWpLNCMk9"
         );
+    }
+
+    #[test]
+    fn attaches_the_proof_then_signs_every_sender_update() {
+        let keypair = Keypair::try_from(SecKey::from_base58(PRIVATE_KEY).expect("valid secret"))
+            .expect("valid keypair");
+        let sender = keypair.public.into_compressed();
+        let receiver = mina_signer::PubKey::from_address(
+            "B62qjVQLxt9nYMWGn45mkgwYfcz8e8jvjNCBo11VKJb7vxDNwv5QLPS",
+        )
+        .expect("valid receiver")
+        .into_compressed();
+        let token = mina_signer::PubKey::from_address(
+            "B62qmnY6m4c6bdgSPnQGZriSaj9vuSjsfh6qkveGTsFX3yGA5ywRaja",
+        )
+        .expect("valid token")
+        .into_compressed();
+        let mut command = build_unsigned_transfer_command(
+            sender,
+            receiver,
+            token,
+            1_000_000_000,
+            100_000_000,
+            7,
+            true,
+            Fp::from(123u64),
+            Fp::from(42u64),
+        );
+        attach_decoded_proof(&mut command, ledger::dummy::sideloaded_proof())
+            .expect("proof must attach");
+        assert!(matches!(
+            command.account_updates.0[1]
+                .elt
+                .account_update
+                .authorization,
+            Control::Proof(_)
+        ));
+
+        let signed = sign_transfer_command(&command, PRIVATE_KEY).expect("command must sign");
+        assert_eq!(signed.signed_account_updates, 2);
+        assert!(!signed.binprot_base64.is_empty());
     }
 }

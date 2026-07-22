@@ -70,6 +70,26 @@
             android:inputType="textUri"
             android:text="https://api.minascan.io/node/devnet/v1/graphql" />
 
+        <Button
+            android:id="@+id/checkBalanceButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:enabled="false"
+            android:text="Check selected address token balance"
+            android:textAllCaps="false" />
+
+        <TextView
+            android:id="@+id/tokenBalance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:text="Token balance: —"
+            android:textColor="#D9D5E8"
+            android:textIsSelectable="true"
+            android:textSize="14sp" />
+
         <CheckBox
             android:id="@+id/fundReceiver"
             android:layout_width="wrap_content"

@@ -17,6 +17,7 @@ class MainActivity : Activity() {
 
     private external fun nativeBackendInfo(): String
     private external fun nativeTransfer(requestJson: String): String
+    private external fun nativeTokenBalance(requestJson: String): String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +35,8 @@ class MainActivity : Activity() {
         val timings = findViewById<TextView>(R.id.timings)
         val progress = findViewById<ProgressBar>(R.id.progress)
         val send = findViewById<Button>(R.id.sendButton)
+        val checkBalance = findViewById<Button>(R.id.checkBalanceButton)
+        val tokenBalance = findViewById<TextView>(R.id.tokenBalance)
 
         executor.execute {
             val info = nativeBackendInfo()
@@ -42,11 +45,43 @@ class MainActivity : Activity() {
                 result.text = info
                 progress.visibility = View.GONE
                 send.isEnabled = true
+                checkBalance.isEnabled = true
+            }
+        }
+
+        checkBalance.setOnClickListener {
+            send.isEnabled = false
+            checkBalance.isEnabled = false
+            progress.visibility = View.VISIBLE
+            status.text = "Loading the selected address token balance…"
+            val request = JSONObject()
+                .put("address", receiver.text.toString())
+                .put("tokenAddress", tokenAddress.text.toString())
+                .put("graphqlUrl", graphqlUrl.text.toString())
+                .toString()
+
+            executor.execute {
+                val response = nativeTokenBalance(request)
+                runOnUiThread {
+                    tokenBalance.text = runCatching {
+                        val json = JSONObject(response)
+                        if (json.optString("status") == "ok") {
+                            "Token balance: ${json.optString("balance")} smallest units"
+                        } else {
+                            "Token balance unavailable: ${json.optString("message")}"
+                        }
+                    }.getOrElse { "Token balance unavailable: native backend error" }
+                    progress.visibility = View.GONE
+                    status.text = "Balance check completed"
+                    send.isEnabled = true
+                    checkBalance.isEnabled = true
+                }
             }
         }
 
         send.setOnClickListener {
             send.isEnabled = false
+            checkBalance.isEnabled = false
             progress.visibility = View.VISIBLE
             status.text = "Building and proving with native Rust…"
             result.text = "Preparing the transaction…"
@@ -68,6 +103,7 @@ class MainActivity : Activity() {
                     progress.visibility = View.GONE
                     status.text = "Operation completed"
                     send.isEnabled = true
+                    checkBalance.isEnabled = true
                 }
             }
         }

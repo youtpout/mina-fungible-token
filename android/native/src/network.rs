@@ -54,6 +54,21 @@ struct ReceiverAccount {
     _public_key: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct BalanceData {
+    account: Option<BalanceAccount>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BalanceAccount {
+    balance: AccountBalance,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountBalance {
+    total: String,
+}
+
 fn snapshot_query(fee_payer: &str, token_address: &str, receiver: &str, token_id: &str) -> String {
     format!(
         r#"query {{
@@ -138,6 +153,49 @@ pub fn fetch_network_snapshot(
     parse_snapshot(response)
 }
 
+pub fn fetch_token_balance(
+    graphql_url: &str,
+    public_key: &str,
+    token_id: &str,
+) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| format!("could not initialize the HTTPS client: {error}"))?;
+    let query = format!(
+        r#"query {{
+  account(publicKey: "{public_key}", token: "{token_id}") {{
+    balance {{ total }}
+  }}
+}}"#
+    );
+    let response = client
+        .post(graphql_url)
+        .json(&serde_json::json!({ "query": query }))
+        .send()
+        .map_err(|error| format!("could not reach the Mina GraphQL endpoint: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("the Mina GraphQL endpoint rejected the request: {error}"))?
+        .json::<GraphQlResponse<BalanceData>>()
+        .map_err(|error| format!("could not decode the Mina GraphQL response: {error}"))?;
+    if !response.errors.is_empty() {
+        let messages = response
+            .errors
+            .into_iter()
+            .map(|error| error.message)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(format!(
+            "the Mina GraphQL endpoint returned an error: {messages}"
+        ));
+    }
+    Ok(response
+        .data
+        .and_then(|data| data.account)
+        .map(|account| account.balance.total)
+        .unwrap_or_else(|| "0".to_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +230,34 @@ mod tests {
 
         let error = parse_snapshot(response).expect_err("GraphQL error must fail");
         assert!(error.contains("account query failed"));
+    }
+
+    #[test]
+    fn parses_existing_and_missing_token_balances() {
+        let existing: GraphQlResponse<BalanceData> = serde_json::from_value(serde_json::json!({
+            "data": { "account": { "balance": { "total": "123456789" } } }
+        }))
+        .expect("valid balance response");
+        assert_eq!(
+            existing
+                .data
+                .and_then(|data| data.account)
+                .map(|account| account.balance.total)
+                .unwrap_or_else(|| "0".to_owned()),
+            "123456789"
+        );
+
+        let missing: GraphQlResponse<BalanceData> = serde_json::from_value(serde_json::json!({
+            "data": { "account": null }
+        }))
+        .expect("valid missing-account response");
+        assert_eq!(
+            missing
+                .data
+                .and_then(|data| data.account)
+                .map(|account| account.balance.total)
+                .unwrap_or_else(|| "0".to_owned()),
+            "0"
+        );
     }
 }

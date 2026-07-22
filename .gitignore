@@ -3,6 +3,7 @@
 target
 node_modules
 android/.gradle/
+android/.kotlin/
 android/app/build/
 android/app/src/main/jniLibs/
 android/local.properties

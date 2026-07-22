@@ -7,6 +7,10 @@ does not load WebAssembly.
 The sender private key is entered in a password field, is never persisted, and
 is cleared after each attempt. Do not use a mainnet key for development.
 
+The balance action queries the receiver's derived fungible-token account and
+shows its balance in the token's smallest unit. A missing token account is
+displayed as a zero balance.
+
 ## Prerequisites
 
 - Android SDK 35 and NDK 27 or newer;
