@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101018"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mina token transfer"
+            android:textColor="#FFFFFF"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/backendStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Loading the native Rust backend…"
+            android:textColor="#B9B7C7"
+            android:textSize="14sp" />
+
+        <ProgressBar
+            android:id="@+id/progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_marginTop="12dp"
+            android:indeterminate="true"
+            android:indeterminateTint="#8C66FF" />
+
+        <EditText
+            android:id="@+id/privateKey"
+            style="@style/TransferInput"
+            android:hint="Sender private key (EK…)"
+            android:importantForAutofill="noExcludeDescendants"
+            android:inputType="textPassword"
+            android:saveEnabled="false" />
+
+        <EditText
+            android:id="@+id/receiver"
+            style="@style/TransferInput"
+            android:hint="Receiver address (B62…)"
+            android:inputType="textNoSuggestions" />
+
+        <EditText
+            android:id="@+id/amount"
+            style="@style/TransferInput"
+            android:hint="Amount in the token's smallest unit"
+            android:inputType="numberDecimal" />
+
+        <EditText
+            android:id="@+id/tokenAddress"
+            style="@style/TransferInput"
+            android:hint="Token contract address (B62…)"
+            android:inputType="textNoSuggestions" />
+
+        <EditText
+            android:id="@+id/graphqlUrl"
+            style="@style/TransferInput"
+            android:hint="Devnet GraphQL endpoint"
+            android:inputType="textUri"
+            android:text="https://api.minascan.io/node/devnet/v1/graphql" />
+
+        <CheckBox
+            android:id="@+id/fundReceiver"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:buttonTint="#8C66FF"
+            android:checked="true"
+            android:text="Create the receiver token account when needed"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/sendButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="20dp"
+            android:enabled="false"
+            android:text="Prove and send"
+            android:textAllCaps="false" />
+
+        <TextView
+            android:id="@+id/result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:fontFamily="monospace"
+            android:textColor="#D9D5E8"
+            android:textIsSelectable="true"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/timings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:fontFamily="monospace"
+            android:text="Compile: —\nProving: —\nSignature: —\nSubmit: —\nTotal: —"
+            android:textColor="#AFA9C8"
+            android:textSize="14sp" />
+
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="TransferInput" parent="android:style/Widget.Material.EditText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:backgroundTint">#8C66FF</item>
+        <item name="android:textColorHint">#888596</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+</resources>
