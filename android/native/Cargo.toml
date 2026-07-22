@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 jni = "0.22.4"
+ledger = { package = "mina-tree", path = "../../../mina-rust/crates/ledger" }
 mina-curves = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }
 mina-runtime = { path = "../../../mina-rust/crates/mina-runtime" }
 mina-signer = { git = "https://github.com/youtpout/proof-systems", branch = "pickle-rs" }

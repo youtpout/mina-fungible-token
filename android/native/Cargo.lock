@@ -2006,6 +2006,7 @@ dependencies = [
  "mina-curves",
  "mina-runtime",
  "mina-signer",
+ "mina-tree",
  "poseidon",
  "serde",
  "serde_json",
