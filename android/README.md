@@ -25,6 +25,19 @@ cd android
 
 The APK is produced under `app/build/outputs/apk/release/`.
 
+## Transfer shape fixture
+
+The exact account-update structure emitted by the fork can be inspected without
+connecting to a Mina node or creating a real proof:
+
+```sh
+npm run task -- android/tools/export-transfer-shape.ts
+npm run task -- android/tools/export-call-data-vector.ts
+```
+
+The fixture deploys and exercises the contract on an in-memory local chain. It
+uses ephemeral test keys and does not submit a network transaction.
+
 The current UI and JNI transport deliberately keep network submission disabled
 inside the Rust backend until the native `FungibleToken.transfer` witness,
 proof, and zkApp signatures have all passed parity tests against o1js.

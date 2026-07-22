@@ -2003,7 +2003,10 @@ name = "mina-token-mobile"
 version = "0.1.0"
 dependencies = [
  "jni",
+ "mina-curves",
  "mina-runtime",
+ "mina-signer",
+ "poseidon",
  "serde",
  "serde_json",
 ]

@@ -5,6 +5,7 @@ use jni::{
     objects::{JClass, JString},
     EnvUnowned,
 };
+use mina_curves::pasta::Fp;
 use mina_runtime::Backend;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,28 @@ impl Timings {
 
 fn backend() -> &'static Backend {
     BACKEND.get_or_init(Backend::default)
+}
+
+pub fn transfer_call_data(
+    sender: &mina_signer::CompressedPubKey,
+    receiver: &mina_signer::CompressedPubKey,
+    amount: u64,
+    blinding: Fp,
+) -> Fp {
+    let packed_arguments = (Fp::from(sender.is_odd as u64) * Fp::from(2u64)
+        + Fp::from(receiver.is_odd as u64))
+        * Fp::from(1u128 << 64)
+        + Fp::from(amount);
+    let method_name = Fp::from(26_689_851_412_640_264_820u128);
+    poseidon::hash::hash_fields(&[
+        Fp::from(5u64),
+        sender.x,
+        receiver.x,
+        packed_arguments,
+        Fp::from(0u64),
+        method_name,
+        blinding,
+    ])
 }
 
 fn response_json(response: NativeResponse) -> String {
@@ -167,5 +190,25 @@ mod tests {
         );
         assert!(response.contains("receiver"));
         assert!(!response.contains(private_key));
+    }
+
+    #[test]
+    fn transfer_call_data_matches_o1js() {
+        let sender = mina_signer::PubKey::from_address(
+            "B62qiuynJSwKPepZGm8fcYbZ3zT2nynjcM23CD1Xzpofy5yKwMaC5N7",
+        )
+        .expect("valid sender")
+        .into_compressed();
+        let receiver = mina_signer::PubKey::from_address(
+            "B62qjVQLxt9nYMWGn45mkgwYfcz8e8jvjNCBo11VKJb7vxDNwv5QLPS",
+        )
+        .expect("valid receiver")
+        .into_compressed();
+        let call_data = transfer_call_data(&sender, &receiver, 1_000_000_000, Fp::from(42u64));
+
+        assert_eq!(
+            call_data.to_string(),
+            "14764797053846341985554514283674863099059682072860059805508960257679155238667"
+        );
     }
 }
