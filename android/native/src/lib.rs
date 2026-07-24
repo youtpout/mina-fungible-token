@@ -37,6 +37,7 @@ use mina_runtime::{
 use mina_signer::{CompressedPubKey, Keypair, SecKey, Signature};
 use serde::{Deserialize, Serialize};
 
+pub mod graphql_json;
 pub mod network;
 pub mod witness;
 
@@ -73,7 +74,19 @@ struct BalanceRequest {
 struct NativeResponse {
     status: &'static str,
     message: String,
+    transaction_hash: Option<String>,
     timings_ms: Timings,
+}
+
+impl NativeResponse {
+    fn error(message: String, timings_ms: Timings) -> Self {
+        Self {
+            status: "error",
+            message,
+            transaction_hash: None,
+            timings_ms,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -413,20 +426,15 @@ fn transfer(request_json: &str) -> String {
     let request: TransferRequest = match serde_json::from_str(request_json) {
         Ok(request) => request,
         Err(error) => {
-            return response_json(NativeResponse {
-                status: "error",
-                message: format!("invalid parameters: {error}"),
-                timings_ms: Timings::pending(started),
-            });
+            return response_json(NativeResponse::error(
+                format!("invalid parameters: {error}"),
+                Timings::pending(started),
+            ));
         }
     };
 
     if let Err(message) = validate_request(&request) {
-        return response_json(NativeResponse {
-            status: "error",
-            message,
-            timings_ms: Timings::pending(started),
-        });
+        return response_json(NativeResponse::error(message, Timings::pending(started)));
     }
 
     let preflight = (|| -> Result<_, String> {
@@ -480,40 +488,34 @@ fn transfer(request_json: &str) -> String {
     let (mut command, snapshot, sender, receiver, token, amount, blinding) = match preflight {
         Ok(result) => result,
         Err(message) => {
-            return response_json(NativeResponse {
-                status: "error",
-                message,
-                timings_ms: Timings::pending(started),
-            });
+            return response_json(NativeResponse::error(message, Timings::pending(started)));
         }
     };
     let compile_started = Instant::now();
     let compiled = match compiled_token() {
         Ok(compiled) => compiled,
         Err(message) => {
-            return response_json(NativeResponse {
-                status: "error",
+            return response_json(NativeResponse::error(
                 message,
-                timings_ms: Timings {
+                Timings {
                     compile: Some(compile_started.elapsed().as_millis()),
                     ..Timings::pending(started)
                 },
-            });
+            ));
         }
     };
     let compile_ms = compile_started.elapsed().as_millis();
     if snapshot.verification_key_hash != compiled.verification_key_hash {
-        return response_json(NativeResponse {
-            status: "error",
-            message: format!(
+        return response_json(NativeResponse::error(
+            format!(
                 "the deployed token verification key {} does not match the embedded o1js 2.15 FungibleToken key {}",
                 snapshot.verification_key_hash, compiled.verification_key_hash
             ),
-            timings_ms: Timings {
+            Timings {
                 compile: Some(compile_ms),
                 ..Timings::pending(started)
             },
-        });
+        ));
     }
 
     let proving_started = Instant::now();
@@ -540,6 +542,7 @@ fn transfer(request_json: &str) -> String {
             receiver_is_odd: receiver.is_odd,
             amount,
             blinding,
+            verification_key_hash: compiled.verification_key_hash,
         })?;
         let response = backend()
             .prove_circuit(ProveCircuitRequest {
@@ -554,60 +557,90 @@ fn transfer(request_json: &str) -> String {
     let transaction_proof = match proof {
         Ok(proof) => proof,
         Err(message) => {
-            return response_json(NativeResponse {
-                status: "error",
+            return response_json(NativeResponse::error(
                 message,
-                timings_ms: Timings {
+                Timings {
                     compile: Some(compile_ms),
                     proving: Some(proving_started.elapsed().as_millis()),
                     ..Timings::pending(started)
                 },
-            });
+            ));
         }
     };
     let proving_ms = proving_started.elapsed().as_millis();
     if let Err(message) = attach_transaction_proof(&mut command, &transaction_proof) {
-        return response_json(NativeResponse {
-            status: "error",
+        return response_json(NativeResponse::error(
             message,
-            timings_ms: Timings {
+            Timings {
                 compile: Some(compile_ms),
                 proving: Some(proving_ms),
                 ..Timings::pending(started)
             },
-        });
+        ));
     }
 
     let signing_started = Instant::now();
     let signed = sign_transfer_command(&command, &request.sender_private_key);
     let signature_ms = signing_started.elapsed().as_millis();
-    if let Err(message) = signed {
-        return response_json(NativeResponse {
-            status: "error",
-            message,
+    let signed = match signed {
+        Ok(signed) => signed,
+        Err(message) => {
+            return response_json(NativeResponse::error(
+                message,
+                Timings {
+                    compile: Some(compile_ms),
+                    proving: Some(proving_ms),
+                    signature: Some(signature_ms),
+                    ..Timings::pending(started)
+                },
+            ));
+        }
+    };
+
+    let zkapp_command_json = match graphql_json::zkapp_command_json(&signed.command) {
+        Ok(json) => json,
+        Err(message) => {
+            return response_json(NativeResponse::error(
+                message,
+                Timings {
+                    compile: Some(compile_ms),
+                    proving: Some(proving_ms),
+                    signature: Some(signature_ms),
+                    ..Timings::pending(started)
+                },
+            ));
+        }
+    };
+    let submit_started = Instant::now();
+    let submitted = network::submit_zkapp_command(&request.graphql_url, &zkapp_command_json);
+    let submit_ms = submit_started.elapsed().as_millis();
+    match submitted {
+        Ok(submitted) => response_json(NativeResponse {
+            status: "sent",
+            message: format!(
+                "Native FungibleToken.transfer was proved on-device and submitted at nonce {}. Transaction hash: {}",
+                snapshot.fee_payer_nonce, submitted.hash,
+            ),
+            transaction_hash: Some(submitted.hash),
             timings_ms: Timings {
                 compile: Some(compile_ms),
                 proving: Some(proving_ms),
                 signature: Some(signature_ms),
+                submit: Some(submit_ms),
+                total: started.elapsed().as_millis(),
+            },
+        }),
+        Err(message) => response_json(NativeResponse::error(
+            message,
+            Timings {
+                compile: Some(compile_ms),
+                proving: Some(proving_ms),
+                signature: Some(signature_ms),
+                submit: Some(submit_ms),
                 ..Timings::pending(started)
             },
-        });
+        )),
     }
-
-    response_json(NativeResponse {
-        status: "notReady",
-        message: format!(
-            "Native FungibleToken.transfer proof and signatures were generated at nonce {}. Network submission is not enabled yet.",
-            snapshot.fee_payer_nonce,
-        ),
-        timings_ms: Timings {
-            compile: Some(compile_ms),
-            proving: Some(proving_ms),
-            signature: Some(signature_ms),
-            submit: None,
-            total: started.elapsed().as_millis(),
-        },
-    })
 }
 
 fn token_balance(request_json: &str) -> String {
@@ -874,6 +907,8 @@ mod tests {
                 .parse()
                 .expect("blinding"),
         );
+        // Both values are cross-verified against o1js `AccountUpdate.hash()` /
+        // `toPublicInput()` on the identical command JSON (networkId testnet).
         let token_update = command.account_updates.0.last().expect("token update");
         assert_eq!(
             token_update
@@ -882,7 +917,7 @@ mod tests {
                 .get()
                 .expect("account update hash")
                 .to_string(),
-            "24504322254444717959786765293920362283340952391346541349956423912974353236312"
+            "5942052871294504843338648535041687405744967511414765779794371228958282456639"
         );
         assert_eq!(
             token_update.elt.calls.hash().to_string(),
@@ -932,6 +967,172 @@ mod tests {
     }
 
     #[test]
+    fn serializes_the_transfer_command_to_the_o1js_json_shape() {
+        let keypair = Keypair::try_from(SecKey::from_base58(PRIVATE_KEY).expect("valid secret"))
+            .expect("valid keypair");
+        let sender = keypair.public.into_compressed();
+        let receiver = mina_signer::PubKey::from_address(
+            "B62qjVQLxt9nYMWGn45mkgwYfcz8e8jvjNCBo11VKJb7vxDNwv5QLPS",
+        )
+        .expect("valid receiver")
+        .into_compressed();
+        let token = mina_signer::PubKey::from_address(
+            "B62qmnY6m4c6bdgSPnQGZriSaj9vuSjsfh6qkveGTsFX3yGA5ywRaja",
+        )
+        .expect("valid token")
+        .into_compressed();
+        let mut command = build_unsigned_transfer_command(
+            sender,
+            receiver,
+            token,
+            1_000_000_000,
+            100_000_000,
+            7,
+            true,
+            Fp::from(123u64),
+            Fp::from(42u64),
+        );
+        attach_decoded_proof(&mut command, ledger::dummy::sideloaded_proof())
+            .expect("proof must attach");
+        let wire: MinaBaseZkappCommandTStableV1WireStableV1 = (&command).into();
+        let json = graphql_json::zkapp_command_json(&wire).expect("serializable command");
+
+        assert_eq!(
+            json["memo"],
+            "E4YM2vTHhWEg66xpj52JErHUBU4pZ1yageL4TVDDpTTSsv8mK6YaH"
+        );
+        assert_eq!(json["feePayer"]["body"]["fee"], "100000000");
+        assert_eq!(json["feePayer"]["body"]["nonce"], "7");
+        assert_eq!(json["feePayer"]["body"]["validUntil"], serde_json::Value::Null);
+        assert!(json["feePayer"]["authorization"].is_string());
+
+        let updates = json["accountUpdates"].as_array().expect("flat updates");
+        assert_eq!(updates.len(), 4);
+        let depths = updates
+            .iter()
+            .map(|update| update["body"]["callDepth"].as_u64().expect("call depth"))
+            .collect::<Vec<_>>();
+        assert_eq!(depths, vec![0, 0, 1, 1]);
+
+        let dummy_vk_hash =
+            "3392518251768960475377392625298437850623664973002200885669375116181514017494";
+        let funding = &updates[0]["body"];
+        assert_eq!(
+            funding["tokenId"],
+            "wSHV2S4qX9jFsLjQo8r1BsMLH2ZRKsZx6EJd1sbozGPieEC4Jf"
+        );
+        assert_eq!(funding["balanceChange"]["magnitude"], "1000000000");
+        assert_eq!(funding["balanceChange"]["sgn"], "Negative");
+        assert_eq!(funding["useFullCommitment"], true);
+        assert_eq!(funding["authorizationKind"]["isSigned"], true);
+        assert_eq!(funding["authorizationKind"]["isProved"], false);
+        assert_eq!(funding["authorizationKind"]["verificationKeyHash"], dummy_vk_hash);
+        assert!(updates[0]["authorization"]["signature"].is_string());
+        assert_eq!(updates[0]["authorization"]["proof"], serde_json::Value::Null);
+
+        let token_update = &updates[1]["body"];
+        assert_eq!(token_update["authorizationKind"]["isProved"], true);
+        assert_eq!(token_update["authorizationKind"]["verificationKeyHash"], "123");
+        assert!(updates[1]["authorization"]["proof"].is_string());
+        assert_eq!(
+            token_update["preconditions"]["account"]["state"],
+            serde_json::json!([null, null, null, "0", null, null, null, null])
+        );
+        assert_eq!(
+            token_update["update"],
+            serde_json::json!({
+                "appState": [null, null, null, null, null, null, null, null],
+                "delegate": null,
+                "verificationKey": null,
+                "permissions": null,
+                "zkappUri": null,
+                "tokenSymbol": null,
+                "timing": null,
+                "votingFor": null
+            })
+        );
+        assert_eq!(
+            token_update["preconditions"]["network"],
+            serde_json::json!({
+                "snarkedLedgerHash": null,
+                "blockchainLength": null,
+                "minWindowDensity": null,
+                "totalCurrency": null,
+                "globalSlotSinceGenesis": null,
+                "stakingEpochData": {
+                    "ledger": { "hash": null, "totalCurrency": null },
+                    "seed": null,
+                    "startCheckpoint": null,
+                    "lockCheckpoint": null,
+                    "epochLength": null
+                },
+                "nextEpochData": {
+                    "ledger": { "hash": null, "totalCurrency": null },
+                    "seed": null,
+                    "startCheckpoint": null,
+                    "lockCheckpoint": null,
+                    "epochLength": null
+                }
+            })
+        );
+
+        let debit = &updates[2]["body"];
+        assert_eq!(debit["mayUseToken"]["parentsOwnToken"], true);
+        assert_eq!(debit["balanceChange"]["sgn"], "Negative");
+        assert!(updates[2]["authorization"]["signature"].is_string());
+
+        let credit = &updates[3]["body"];
+        assert_eq!(credit["balanceChange"]["sgn"], "Positive");
+        assert_eq!(credit["authorizationKind"]["isSigned"], false);
+        assert_eq!(credit["authorizationKind"]["isProved"], false);
+        assert_eq!(updates[3]["authorization"]["proof"], serde_json::Value::Null);
+        assert_eq!(updates[3]["authorization"]["signature"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn renders_graphql_literals_with_bare_keys() {
+        let literal = graphql_json::graphql_literal(&serde_json::json!({
+            "memo": "with \"quotes\"",
+            "accountUpdates": [{ "body": { "callDepth": 1, "incrementNonce": false } }],
+            "validUntil": null
+        }));
+
+        assert!(literal.contains(r#"memo: "with \"quotes\"""#));
+        assert!(literal.contains("callDepth: 1"));
+        assert!(literal.contains("incrementNonce: false"));
+        assert!(literal.contains("validUntil: null"));
+        assert!(!literal.contains(r#""memo""#));
+    }
+
+    #[test]
+    #[ignore = "runs a real Devnet transfer end-to-end; needs the MINA_* environment variables"]
+    fn devnet_end_to_end_transfer() {
+        let sender = std::env::var("MINA_PRIVATE_KEY").expect("MINA_PRIVATE_KEY");
+        let receiver = std::env::var("MINA_RECEIVER_ADDRESS").expect("MINA_RECEIVER_ADDRESS");
+        let token = std::env::var("MINA_TOKEN_ADDRESS").expect("MINA_TOKEN_ADDRESS");
+        let graphql_url = std::env::var("MINA_GRAPHQL_URL")
+            .unwrap_or_else(|_| "https://api.minascan.io/node/devnet/v1/graphql".to_owned());
+        let amount =
+            std::env::var("MINA_TRANSFER_AMOUNT").unwrap_or_else(|_| "1000000000".to_owned());
+        let response = transfer(
+            &serde_json::json!({
+                "senderPrivateKey": sender,
+                "receiver": receiver,
+                "amount": amount,
+                "tokenAddress": token,
+                "graphqlUrl": graphql_url,
+                "fundReceiver": true
+            })
+            .to_string(),
+        );
+        eprintln!("{response}");
+        assert!(
+            response.contains(r#""status": "sent""#),
+            "the Devnet transfer was not submitted"
+        );
+    }
+
+    #[test]
     #[ignore = "compiles all eleven FungibleToken methods and creates a native Pickles proof"]
     fn compiles_and_proves_the_native_transfer_circuit() {
         let field = |value: &str| value.parse::<Fp>().expect("field test vector");
@@ -940,9 +1141,12 @@ mod tests {
             compiled.verification_key_hash.to_string(),
             "11275266297357989434659649579180929660472107786900344600948115953037388411671"
         );
+        // The account update hash is the ledger digest of the transfer body
+        // built with the embedded (real) verification key hash, matching what
+        // transfer() feeds the prover at runtime.
         let witness = witness::generate_transfer_witness(witness::TransferWitnessInput {
             account_update_hash: field(
-                "11909561140019905098978899476582907211622221136408647825565176977949056361901",
+                "15537917634692260976475066310831007672684196481687388777173706295382163403812",
             ),
             calls_hash: field(
                 "7652688051181415380811715514734574835653779492253782967014461790261901546813",
@@ -963,6 +1167,7 @@ mod tests {
             blinding: field(
                 "8554297942514439850942263858623548274610807464913380485764394084910558078826",
             ),
+            verification_key_hash: compiled.verification_key_hash,
         })
         .expect("transfer witness");
         let proof = backend()
@@ -972,5 +1177,73 @@ mod tests {
             })
             .expect("native transfer proof");
         assert!(proof.transaction_proof.is_some());
+    }
+}
+
+#[cfg(test)]
+mod debug_submit {
+    use super::*;
+
+    #[test]
+    #[ignore = "debug helper: writes the exact sendZkapp request body to MINA_DUMP_PATH"]
+    fn dump_send_zkapp_request_body() {
+        let sender_key = std::env::var("MINA_PRIVATE_KEY").expect("MINA_PRIVATE_KEY");
+        let receiver = std::env::var("MINA_RECEIVER_ADDRESS").expect("MINA_RECEIVER_ADDRESS");
+        let token_address = std::env::var("MINA_TOKEN_ADDRESS").expect("MINA_TOKEN_ADDRESS");
+        let graphql_url = std::env::var("MINA_GRAPHQL_URL").expect("MINA_GRAPHQL_URL");
+        let dump_path = std::env::var("MINA_DUMP_PATH").expect("MINA_DUMP_PATH");
+
+        let secret = SecKey::from_base58(&sender_key).unwrap();
+        let keypair = Keypair::try_from(secret).unwrap();
+        let sender = keypair.public.into_compressed();
+        let receiver = mina_signer::PubKey::from_address(&receiver).unwrap().into_compressed();
+        let token = mina_signer::PubKey::from_address(&token_address).unwrap().into_compressed();
+        let token_id = derive_token_id_base58(token.clone());
+        let snapshot = network::fetch_network_snapshot(
+            &graphql_url,
+            &sender.clone().into_address(),
+            &token_address,
+            &receiver.clone().into_address(),
+            &token_id,
+        ).unwrap();
+        let compiled = compiled_token().unwrap();
+        let blinding = Fp::rand(&mut rand::thread_rng());
+        let amount = 1_000_000_000u64;
+        let mut command = build_unsigned_transfer_command(
+            sender.clone(), receiver.clone(), token.clone(),
+            amount, 100_000_000, snapshot.fee_payer_nonce,
+            !snapshot.receiver_exists, snapshot.verification_key_hash, blinding,
+        );
+        let token_update = command.account_updates.0.last().unwrap();
+        let account_update_hash = token_update.elt.account_update_digest.get().unwrap();
+        let calls_hash = token_update.elt.calls.hash();
+        let witness = witness::generate_transfer_witness(witness::TransferWitnessInput {
+            account_update_hash, calls_hash,
+            token_x: token.x, token_is_odd: token.is_odd,
+            sender_x: sender.x, sender_is_odd: sender.is_odd,
+            receiver_x: receiver.x, receiver_is_odd: receiver.is_odd,
+            amount, blinding,
+            verification_key_hash: compiled.verification_key_hash,
+        }).unwrap();
+        let proof = backend().prove_circuit(ProveCircuitRequest {
+            circuit_id: compiled.transfer_circuit_id,
+            witness,
+        }).unwrap().transaction_proof.unwrap();
+        attach_transaction_proof(&mut command, &proof).unwrap();
+        let signed = sign_transfer_command(&command, &sender_key).unwrap();
+        let command_json = graphql_json::zkapp_command_json(&signed.command).unwrap();
+        let body = serde_json::json!({
+            "query": format!(
+                "mutation {{\n  sendZkapp(input: {{ zkappCommand: {} }}) {{\n    zkapp {{\n      hash\n      failureReason {{ failures index }}\n    }}\n  }}\n}}",
+                graphql_json::graphql_literal(&command_json)
+            )
+        });
+        std::fs::write(&dump_path, serde_json::to_string(&body).unwrap()).unwrap();
+        std::fs::write(
+            format!("{dump_path}.command.json"),
+            serde_json::to_string_pretty(&command_json).unwrap(),
+        )
+        .unwrap();
+        eprintln!("wrote {} bytes to {dump_path}", std::fs::metadata(&dump_path).unwrap().len());
     }
 }

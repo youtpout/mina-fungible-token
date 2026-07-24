@@ -101,7 +101,7 @@ class MainActivity : Activity() {
                     result.text = response
                     timings.text = formatTimings(response)
                     progress.visibility = View.GONE
-                    status.text = "Operation completed"
+                    status.text = transferStatus(response)
                     send.isEnabled = true
                     checkBalance.isEnabled = true
                 }
@@ -112,6 +112,17 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun transferStatus(response: String): String = try {
+        val json = JSONObject(response)
+        if (json.optString("status") == "sent") {
+            "Transfer submitted: ${json.optString("transactionHash")}"
+        } else {
+            "Transfer failed: ${json.optString("message").take(120)}"
+        }
+    } catch (_: Exception) {
+        "Operation completed"
     }
 
     private fun formatTimings(response: String): String = try {

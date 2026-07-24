@@ -68,7 +68,7 @@
             style="@style/TransferInput"
             android:hint="Devnet GraphQL endpoint"
             android:inputType="textUri"
-            android:text="https://api.minascan.io/node/devnet/v1/graphql" />
+            android:text="https://mina-devnet-graphql.aurowallet.com/graphql" />
 
         <Button
             android:id="@+id/checkBalanceButton"

@@ -42,6 +42,20 @@ npm run task -- android/tools/export-call-data-vector.ts
 The fixture deploys and exercises the contract on an in-memory local chain. It
 uses ephemeral test keys and does not submit a network transaction.
 
-The current UI and JNI transport deliberately keep network submission disabled
-inside the Rust backend until the native `FungibleToken.transfer` witness,
-proof, and zkApp signatures have all passed parity tests against o1js.
+## Network submission
+
+After the witness, proof, and zkApp signatures are generated on-device, the
+Rust backend broadcasts the command through the daemon `sendZkapp` GraphQL
+mutation on the configured endpoint (the o1js inline-literal format). A
+`sent` status with the transaction hash means the node accepted the command
+into its pool; inclusion can be verified on
+`https://minascan.io/devnet/tx/<hash>`. GraphQL errors and
+`failureReason` entries are surfaced as error statuses with the submit
+timing populated.
+
+The o1js side of the digest parity check can be recomputed from a command
+JSON dump with:
+
+```sh
+npm run task -- android/tools/export-account-update-hash.ts <command.json> [updateIndex]
+```

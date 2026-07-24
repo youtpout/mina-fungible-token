@@ -9,7 +9,12 @@ use poseidon::{full_round, PlonkSpongeConstantsKimchi, SpongeParamsForField};
 use serde::Deserialize;
 
 const PROGRAM_BYTES: &[u8] = include_bytes!("../assets/fungible-token-1.1.0.json.gz");
-const STRUCTURAL_SEED: &str =
+/// The embedded witness template was recorded from o1js without compiling
+/// the contract, so its in-circuit `authorizationKind.verificationKeyHash`
+/// (witness index 1109) holds the o1js dummy hash. Real transfers must
+/// replace it with the deployed verification key hash, because the circuit
+/// recomputes the account update digest from it.
+pub const DUMMY_VERIFICATION_KEY_HASH: &str =
     "3392518251768960475377392625298437850623664973002200885669375116181514017494";
 
 #[derive(Clone, Deserialize)]
@@ -465,6 +470,9 @@ pub struct TransferWitnessInput {
     pub receiver_is_odd: bool,
     pub amount: u64,
     pub blinding: Fp,
+    /// The verification key hash of the proved account update; must match
+    /// the hash used to compute `account_update_hash`.
+    pub verification_key_hash: Fp,
 }
 
 pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<String>, String> {
@@ -489,7 +497,7 @@ pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<Stri
     witness[10] = Fp::from(input.receiver_is_odd as u64);
     witness[12] = Fp::from(input.amount);
     witness[25] = input.blinding;
-    witness[1109] = parse_field(STRUCTURAL_SEED)?;
+    witness[1109] = input.verification_key_hash;
     seed_amount_assertions(witness[12], &mut witness)?;
     seed_is_zero_assertions(circuit, &mut witness, &mut protected);
 
@@ -524,9 +532,19 @@ mod tests {
             receiver_is_odd: expected[10].is_one(),
             amount: 1_234_567_890,
             blinding: expected[25],
+            verification_key_hash: expected[1109],
         })
         .expect("generated witness");
         assert_eq!(generated, program.transfer_witness_template);
+    }
+
+    #[test]
+    fn the_template_embeds_the_dummy_verification_key_hash() {
+        let program = program().expect("embedded program");
+        assert_eq!(
+            program.transfer_witness_template[1109],
+            DUMMY_VERIFICATION_KEY_HASH
+        );
     }
 
     #[test]
@@ -566,6 +584,7 @@ mod tests {
             blinding: field(
                 "8554297942514439850942263858623548274610807464913380485764394084910558078826",
             ),
+            verification_key_hash: field(DUMMY_VERIFICATION_KEY_HASH),
         })
         .expect("generated witness");
         assert_eq!(

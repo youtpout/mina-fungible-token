@@ -11,6 +11,11 @@ pub struct NetworkSnapshot {
     pub receiver_exists: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubmittedTransaction {
+    pub hash: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct GraphQlResponse<T> {
     data: Option<T>,
@@ -52,6 +57,31 @@ struct VerificationKey {
 struct ReceiverAccount {
     #[serde(rename = "publicKey")]
     _public_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SendZkappData {
+    send_zkapp: Option<SendZkappPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SendZkappPayload {
+    zkapp: SubmittedZkapp,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmittedZkapp {
+    hash: String,
+    #[serde(default)]
+    failure_reason: Option<Vec<ZkappFailureReason>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ZkappFailureReason {
+    #[serde(default)]
+    failures: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,6 +183,77 @@ pub fn fetch_network_snapshot(
     parse_snapshot(response)
 }
 
+fn send_zkapp_mutation(zkapp_command: &serde_json::Value) -> String {
+    format!(
+        r#"mutation {{
+  sendZkapp(input: {{ zkappCommand: {} }}) {{
+    zkapp {{
+      hash
+      failureReason {{ failures index }}
+    }}
+  }}
+}}"#,
+        crate::graphql_json::graphql_literal(zkapp_command)
+    )
+}
+
+fn parse_send_zkapp(
+    response: GraphQlResponse<SendZkappData>,
+) -> Result<SubmittedTransaction, String> {
+    if !response.errors.is_empty() {
+        let messages = response
+            .errors
+            .into_iter()
+            .map(|error| error.message)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(format!(
+            "the Mina GraphQL endpoint rejected the transaction: {messages}"
+        ));
+    }
+    let zkapp = response
+        .data
+        .and_then(|data| data.send_zkapp)
+        .ok_or_else(|| "the Mina GraphQL response did not contain data".to_owned())?
+        .zkapp;
+    if let Some(failure_reason) = zkapp.failure_reason {
+        let failures = failure_reason
+            .into_iter()
+            .flat_map(|reason| reason.failures)
+            .collect::<Vec<_>>();
+        if !failures.is_empty() {
+            return Err(format!(
+                "the transaction was rejected: {}",
+                failures.join("; ")
+            ));
+        }
+    }
+    Ok(SubmittedTransaction { hash: zkapp.hash })
+}
+
+pub fn submit_zkapp_command(
+    graphql_url: &str,
+    zkapp_command: &serde_json::Value,
+) -> Result<SubmittedTransaction, String> {
+    // The proof makes the mutation weigh a few hundred kilobytes and the node
+    // verifies it synchronously before answering, so leave far more room
+    // than the lightweight snapshot queries get (o1js waits five minutes).
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| format!("could not initialize the HTTPS client: {error}"))?;
+    let response = client
+        .post(graphql_url)
+        .json(&serde_json::json!({ "query": send_zkapp_mutation(zkapp_command) }))
+        .send()
+        .map_err(|error| format!("could not reach the Mina GraphQL endpoint: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("the Mina GraphQL endpoint rejected the request: {error}"))?
+        .json::<GraphQlResponse<SendZkappData>>()
+        .map_err(|error| format!("could not decode the Mina GraphQL response: {error}"))?;
+    parse_send_zkapp(response)
+}
+
 pub fn fetch_token_balance(
     graphql_url: &str,
     public_key: &str,
@@ -230,6 +331,69 @@ mod tests {
 
         let error = parse_snapshot(response).expect_err("GraphQL error must fail");
         assert!(error.contains("account query failed"));
+    }
+
+    #[test]
+    fn builds_a_send_zkapp_mutation_with_unquoted_keys() {
+        let mutation = send_zkapp_mutation(&serde_json::json!({
+            "feePayer": { "body": { "publicKey": "B62qtest", "fee": "100000000" } },
+            "accountUpdates": [],
+            "memo": "E4YM2vTH"
+        }));
+
+        assert!(mutation.contains("sendZkapp(input: { zkappCommand: "));
+        assert!(mutation.contains("feePayer: "));
+        assert!(mutation.contains(r#"publicKey: "B62qtest""#));
+        assert!(mutation.contains("failureReason { failures index }"));
+        assert!(!mutation.contains(r#""feePayer""#));
+    }
+
+    #[test]
+    fn parses_a_successful_send_zkapp_response() {
+        let response = serde_json::from_value(serde_json::json!({
+            "data": {
+                "sendZkapp": {
+                    "zkapp": {
+                        "hash": "5JuJ1eRxdopMHgm1eZAXjRNXvhuQVQipDGnMFDPYQXvKPWkx1SF7",
+                        "failureReason": null
+                    }
+                }
+            }
+        }))
+        .expect("valid fixture");
+
+        let submitted = parse_send_zkapp(response).expect("submission must succeed");
+        assert_eq!(
+            submitted.hash,
+            "5JuJ1eRxdopMHgm1eZAXjRNXvhuQVQipDGnMFDPYQXvKPWkx1SF7"
+        );
+    }
+
+    #[test]
+    fn surfaces_send_zkapp_rejections() {
+        let graphql_error: GraphQlResponse<SendZkappData> =
+            serde_json::from_value(serde_json::json!({
+                "errors": [{ "message": "Invalid_nonce" }]
+            }))
+            .expect("valid fixture");
+        let error = parse_send_zkapp(graphql_error).expect_err("GraphQL error must fail");
+        assert!(error.contains("Invalid_nonce"));
+
+        let failure: GraphQlResponse<SendZkappData> = serde_json::from_value(serde_json::json!({
+            "data": {
+                "sendZkapp": {
+                    "zkapp": {
+                        "hash": "5Ju...",
+                        "failureReason": [
+                            { "index": "2", "failures": ["Overflow"] }
+                        ]
+                    }
+                }
+            }
+        }))
+        .expect("valid fixture");
+        let error = parse_send_zkapp(failure).expect_err("failure reason must fail");
+        assert!(error.contains("Overflow"));
     }
 
     #[test]
