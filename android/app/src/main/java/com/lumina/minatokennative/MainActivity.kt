@@ -41,6 +41,22 @@ class MainActivity : Activity() {
         // long proving run, so mirror them right under the send button.
         val sendProgress = findViewById<ProgressBar>(R.id.sendProgress)
         val sendStatus = findViewById<TextView>(R.id.sendStatus)
+        val changeKey = findViewById<Button>(R.id.changeKeyButton)
+
+        // The key is kept for repeat transfers rather than cleared, but it is
+        // locked once used so it cannot be edited by accident; replacing it is
+        // deliberate and starts from an empty field.
+        fun lockKey() {
+            privateKey.isEnabled = false
+            changeKey.visibility = View.VISIBLE
+        }
+
+        changeKey.setOnClickListener {
+            privateKey.text.clear()
+            privateKey.isEnabled = true
+            changeKey.visibility = View.GONE
+            privateKey.requestFocus()
+        }
 
         fun showStatus(message: String, busy: Boolean) {
             status.text = message
@@ -106,7 +122,7 @@ class MainActivity : Activity() {
             executor.execute {
                 val response = nativeTransfer(request)
                 runOnUiThread {
-                    privateKey.text.clear()
+                    lockKey()
                     result.text = response
                     timings.text = formatTimings(response)
                     showStatus(transferStatus(response), busy = false)

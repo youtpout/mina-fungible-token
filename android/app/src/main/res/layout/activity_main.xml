@@ -46,6 +46,16 @@
             android:saveEnabled="false"
             android:text="@string/default_sender_private_key" />
 
+        <Button
+            android:id="@+id/changeKeyButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Use a different key"
+            android:textAllCaps="false"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
         <EditText
             android:id="@+id/receiver"
             style="@style/TransferInput"
