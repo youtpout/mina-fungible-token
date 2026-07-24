@@ -68,6 +68,11 @@ pub fn transfer_branch() -> Result<usize, String> {
     Ok(program()?.transfer_branch)
 }
 
+/// The program's verifier indexes, precomputed by `measure_program_cache`.
+/// Restoring from it replaces the column commitments that dominate a cold
+/// compile; a stale payload is ignored and the program simply compiles.
+const PROGRAM_CACHE_BASE64: &str = include_str!("../assets/fungible-token-1.1.0.cache.b64");
+
 pub fn compile_request() -> Result<CompileProgramRequest, String> {
     let program = program()?;
     Ok(CompileProgramRequest {
@@ -80,7 +85,7 @@ pub fn compile_request() -> Result<CompileProgramRequest, String> {
                 proofs_verified: 0,
             })
             .collect(),
-        cache_bytes_base64: None,
+        cache_bytes_base64: Some(PROGRAM_CACHE_BASE64.trim().to_owned()),
         want_cache_bytes: false,
     })
 }

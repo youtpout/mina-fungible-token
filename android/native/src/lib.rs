@@ -1185,6 +1185,10 @@ mod compile_bench {
     use super::*;
     use mina_runtime::{CompileCircuitRequest, CompileProgramRequest};
 
+    fn base64_len(payload: &str) -> usize {
+        payload.len() / 4 * 3
+    }
+
     fn first_branches(count: usize) -> CompileProgramRequest {
         let full = witness::compile_request().expect("compile request");
         CompileProgramRequest {
@@ -1196,6 +1200,55 @@ mod compile_bench {
             cache_bytes_base64: None,
             want_cache_bytes: false,
         }
+    }
+
+    /// Regenerates the embedded verifier-index cache and reports what it
+    /// buys. Writing the payload to `MINA_CACHE_OUT` refreshes the asset;
+    /// see the README.
+    #[test]
+    #[ignore = "regenerates assets/fungible-token-1.1.0.cache.b64"]
+    fn export_program_cache() {
+        let request = witness::compile_request().expect("compile request");
+        let branch_count = request.branches.len();
+
+        let started = Instant::now();
+        let cold = backend()
+            .compile_program(CompileProgramRequest {
+                cache_bytes_base64: None,
+                want_cache_bytes: true,
+                ..witness::compile_request().expect("request")
+            })
+            .expect("cold compile");
+        let cold_ms = started.elapsed().as_millis();
+        let payload = cold.cache_bytes_base64.expect("cache payload");
+        let payload_bytes =
+            base64_len(&payload);
+
+        let started = Instant::now();
+        let warm = backend()
+            .compile_program(CompileProgramRequest {
+                cache_bytes_base64: Some(payload.clone()),
+                want_cache_bytes: false,
+                ..witness::compile_request().expect("request")
+            })
+            .expect("warm compile");
+        let warm_ms = started.elapsed().as_millis();
+
+        assert!(warm.restored_from_cache, "the warm compile ignored the cache");
+        assert_eq!(
+            warm.branches[witness::transfer_branch().unwrap()].verification_key_hash,
+            cold.branches[witness::transfer_branch().unwrap()].verification_key_hash,
+            "the cache changed the verification key"
+        );
+
+        if let Ok(path) = std::env::var("MINA_CACHE_OUT") {
+            std::fs::write(&path, &payload).unwrap();
+            eprintln!("wrote {path} (base64)");
+        }
+        eprintln!("branches                 : {branch_count}");
+        eprintln!("cache payload            : {payload_bytes} bytes");
+        eprintln!("cold compile             : {cold_ms} ms");
+        eprintln!("warm compile (cache)     : {warm_ms} ms");
     }
 
     /// Splits the FungibleToken compile cost into its one-off SRS warm-up,

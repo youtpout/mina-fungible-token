@@ -68,6 +68,21 @@ JSON dump with:
 npm run task -- android/tools/export-account-update-hash.ts <command.json> [updateIndex]
 ```
 
+## Regenerating the compile cache
+
+`native/assets/fungible-token-1.1.0.cache.b64` holds the program's verifier
+indexes. The app hands it to the backend, which rebuilds the prover indexes
+around it instead of committing every circuit's fixed columns again. Refresh
+it whenever the embedded program or the pickles compiler changes:
+
+```sh
+cd android/native && MINA_CACHE_OUT=assets/fungible-token-1.1.0.cache.b64 cargo test --release export_program_cache -- --ignored --nocapture
+```
+
+The command prints the payload size and the cold/warm compile times, and
+fails if the cache would change the verification key. A stale payload is
+never fatal at runtime: the backend ignores it and compiles normally.
+
 ## Compile cost
 
 Proving needs only the `transfer` branch, but the contract's verification key
