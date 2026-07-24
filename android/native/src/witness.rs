@@ -68,10 +68,29 @@ pub fn transfer_branch() -> Result<usize, String> {
     Ok(program()?.transfer_branch)
 }
 
-/// The program's verifier indexes, precomputed by `measure_program_cache`.
+/// The program's verifier indexes, precomputed by `export_program_cache`.
 /// Restoring from it replaces the column commitments that dominate a cold
 /// compile; a stale payload is ignored and the program simply compiles.
 const PROGRAM_CACHE_BASE64: &str = include_str!("../assets/fungible-token-1.1.0.cache.b64");
+
+include!(concat!(env!("OUT_DIR"), "/srs_payloads.rs"));
+
+/// Seeds the SRS and Lagrange bases exported by `export_srs_payloads`, so
+/// the first compile does not have to build them. Returns how many payloads
+/// were accepted; zero simply means they get recomputed as before.
+pub fn seed_srs_payloads() -> usize {
+    SRS_PAYLOADS
+        .iter()
+        .filter(|(curve, domain_log2, payload)| {
+            mina_runtime::Backend::seed_srs_cache(mina_runtime::SeedSrsCacheRequest {
+                curve: (*curve).to_owned(),
+                payload_base64: payload.trim().to_owned(),
+                domain_log2: *domain_log2,
+            })
+            .unwrap_or(false)
+        })
+        .count()
+}
 
 pub fn compile_request() -> Result<CompileProgramRequest, String> {
     let program = program()?;

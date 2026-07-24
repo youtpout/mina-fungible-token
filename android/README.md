@@ -83,6 +83,27 @@ The command prints the payload size and the cold/warm compile times, and
 fails if the cache would change the verification key. A stale payload is
 never fatal at runtime: the backend ignores it and compiles normally.
 
+## Embedding the SRS and Lagrange bases
+
+The remaining startup cost is building the SRS and the Lagrange bases. Those
+are the same for every Mina circuit, so they can be exported once and seeded
+at startup:
+
+```sh
+cd android/native && MINA_SRS_OUT=assets/precomputed cargo test --release export_srs_payloads -- --ignored --nocapture
+```
+
+`build.rs` picks up whatever lands in `native/assets/precomputed/` and embeds
+it; an empty directory just means they get recomputed on first use, so the
+project builds without them. They stay out of version control — about 27 MB,
+with the Vesta SRS alone over the limit — and they are reproducible from the
+command above.
+
+Note the payloads use the o1js `Cache` format, which writes each curve point
+as two decimal strings in JSON: about 169 bytes per point, against 64 bytes
+for the same point in a compact binary encoding. The size is encoding
+overhead for jsoo interoperability, not extra data.
+
 ## Compile cost
 
 Proving needs only the `transfer` branch, but the contract's verification key
@@ -93,14 +114,20 @@ compiled to its step verifier. The split is measurable with:
 cargo test --release decompose_compile_time -- --ignored --nocapture
 ```
 
-On a desktop, before and after pickles stopped building a per-branch wrap
-index only to drop it:
+On a desktop, cumulatively:
 
-| | before | after |
-| --- | --- | --- |
-| per additional branch | 349 ms | 137 ms |
-| eleven branches, warm | 5096 ms | 2983 ms |
+| | compile |
+| --- | --- |
+| original | 6259 ms |
+| pickles stops building a per-branch wrap it then drops | 4576 ms |
+| verifier-index cache embedded | 3469 ms |
+| SRS and Lagrange bases embedded too | 641 ms |
 
-The first compile in a process also pays a one-off SRS/Lagrange warm-up of
-about 1.2 s, and `compiled_token` caches the program for the process, so a
+Measure the last row on any change with:
+
+```sh
+cd android/native && cargo test --release measure_startup_compile -- --ignored --nocapture
+```
+
+`compiled_token` also caches the program for the life of the process, so a
 second transfer in the same session skips compilation entirely.

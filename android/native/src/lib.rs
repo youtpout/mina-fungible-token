@@ -127,6 +127,7 @@ fn compiled_token() -> Result<CompiledToken, String> {
         .get_or_init(|| {
             let expected_hash = witness::verification_key_hash()?;
             let transfer_branch = witness::transfer_branch()?;
+            witness::seed_srs_payloads();
             let response = backend()
                 .compile_program(witness::compile_request()?)
                 .map_err(|error| error.to_string())?;
@@ -1200,6 +1201,67 @@ mod compile_bench {
             cache_bytes_base64: None,
             want_cache_bytes: false,
         }
+    }
+
+    /// The app's own startup path, timed from a cold process: seed whatever
+    /// SRS payloads ship with the binary, then restore the program.
+    #[test]
+    #[ignore = "benchmark: times the app's cold startup compile"]
+    fn measure_startup_compile() {
+        let seeded = witness::SRS_PAYLOADS.len();
+        let started = Instant::now();
+        let compiled = compiled_token().expect("compiled program");
+        let elapsed = started.elapsed().as_millis();
+        assert_eq!(
+            compiled.verification_key_hash.to_string(),
+            "11275266297357989434659649579180929660472107786900344600948115953037388411671"
+        );
+        eprintln!("embedded SRS payloads : {seeded}");
+        eprintln!("startup compile       : {elapsed} ms");
+    }
+
+    /// Exports the SRS and Lagrange bases materialized by a compile, so the
+    /// app can seed them instead of recomputing them on first use. Writes
+    /// into the directory named by `MINA_SRS_OUT`.
+    #[test]
+    #[ignore = "exports the SRS/Lagrange payloads named by MINA_SRS_OUT"]
+    fn export_srs_payloads() {
+        use mina_runtime::{Backend, ExportSrsCacheRequest};
+
+        let out = std::env::var("MINA_SRS_OUT").expect("MINA_SRS_OUT");
+        std::fs::create_dir_all(&out).expect("output directory");
+        backend()
+            .compile_program(witness::compile_request().expect("request"))
+            .expect("compile");
+
+        let mut total = 0usize;
+        let mut export = |name: String, request: ExportSrsCacheRequest| {
+            if let Some(payload) = Backend::export_srs_cache(request).payload_base64 {
+                let path = format!("{out}/{name}");
+                std::fs::write(&path, &payload).expect("write payload");
+                total += payload.len();
+                eprintln!("{name}: {} bytes (base64)", payload.len());
+            }
+        };
+        for curve in ["vesta", "pallas"] {
+            export(
+                format!("srs-{curve}.b64"),
+                ExportSrsCacheRequest {
+                    curve: curve.to_owned(),
+                    domain_log2: None,
+                },
+            );
+            for domain_log2 in 0..=16u32 {
+                export(
+                    format!("lagrange-{curve}-{domain_log2}.b64"),
+                    ExportSrsCacheRequest {
+                        curve: curve.to_owned(),
+                        domain_log2: Some(domain_log2),
+                    },
+                );
+            }
+        }
+        eprintln!("total: {total} bytes (base64)");
     }
 
     /// Regenerates the embedded verifier-index cache and reports what it
