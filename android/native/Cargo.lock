@@ -1138,7 +1138,7 @@ dependencies = [
 [[package]]
 name = "groupmap"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -1561,7 +1561,7 @@ dependencies = [
 [[package]]
 name = "internal-tracing"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 
 [[package]]
 name = "ipnet"
@@ -1707,7 +1707,7 @@ dependencies = [
 [[package]]
 name = "kimchi"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -1850,7 +1850,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 [[package]]
 name = "mina-base58"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "bs58 0.5.1",
  "sha2 0.10.8",
@@ -1904,7 +1904,7 @@ dependencies = [
 [[package]]
 name = "mina-curves"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -1916,7 +1916,7 @@ dependencies = [
 [[package]]
 name = "mina-hasher"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ff",
  "bitvec",
@@ -1975,7 +1975,7 @@ dependencies = [
 [[package]]
 name = "mina-poseidon"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -2014,7 +2014,7 @@ dependencies = [
 [[package]]
 name = "mina-signer"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -2323,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "o1-utils"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ff",
  "ark-poly",
@@ -2460,7 +2460,7 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 [[package]]
 name = "pickles"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -2506,7 +2506,7 @@ checksum = "26072860ba924cbfa98ea39c8c19b4dd6a4a25423dbdf219c1eca91aa0cf6964"
 [[package]]
 name = "poly-commitment"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -3299,7 +3299,7 @@ checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 [[package]]
 name = "snarky"
 version = "0.7.0"
-source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#fe42d37adfad95f9691a2932a17ac4ea35d157a8"
+source = "git+https://github.com/youtpout/proof-systems?branch=pickle-rs#198c330b40f05a1ed1bf65ee014c8980b7d1df72"
 dependencies = [
  "ark-ec",
  "ark-ff",

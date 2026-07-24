@@ -67,3 +67,25 @@ JSON dump with:
 ```sh
 npm run task -- android/tools/export-account-update-hash.ts <command.json> [updateIndex]
 ```
+
+## Compile cost
+
+Proving needs only the `transfer` branch, but the contract's verification key
+is derived from a wrap shared by all eleven methods, so every branch is
+compiled to its step verifier. The split is measurable with:
+
+```sh
+cargo test --release decompose_compile_time -- --ignored --nocapture
+```
+
+On a desktop, before and after pickles stopped building a per-branch wrap
+index only to drop it:
+
+| | before | after |
+| --- | --- | --- |
+| per additional branch | 349 ms | 137 ms |
+| eleven branches, warm | 5096 ms | 2983 ms |
+
+The first compile in a process also pays a one-off SRS/Lagrange warm-up of
+about 1.2 s, and `compiled_token` caches the program for the process, so a
+second transfer in the same session skips compilation entirely.
