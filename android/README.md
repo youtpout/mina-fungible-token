@@ -4,8 +4,10 @@ This application targets 64-bit Android devices (`arm64-v8a`). Its proving
 backend is `mina-runtime`/Pickles compiled as a native Rust shared library. It
 does not load WebAssembly.
 
-The sender private key is entered in a password field, is never persisted, and
-is cleared after each attempt. Do not use a mainnet key for development.
+The sender private key is entered in a password field and is never persisted.
+After a transfer it stays in place so the next one needs no retyping, but the
+field locks: replacing the key is a deliberate act through "Use a different
+key", which empties the field first. Do not use a mainnet key for development.
 
 The balance action queries the receiver's derived fungible-token account and
 shows its balance in the token's smallest unit. A missing token account is
@@ -95,14 +97,15 @@ cd android/native && MINA_SRS_OUT=assets/precomputed cargo test --release export
 
 `build.rs` picks up whatever lands in `native/assets/precomputed/` and embeds
 it; an empty directory just means they get recomputed on first use, so the
-project builds without them. They stay out of version control — about 27 MB,
-with the Vesta SRS alone over the limit — and they are reproducible from the
-command above.
+project builds without them.
 
-Note the payloads use the o1js `Cache` format, which writes each curve point
-as two decimal strings in JSON: about 169 bytes per point, against 64 bytes
-for the same point in a compact binary encoding. The size is encoding
-overhead for jsoo interoperability, not extra data.
+The payloads use the compact binary layout (`raw: true`), which stores each
+curve point as its two 32-byte coordinates: 64 bytes per point against about
+169 in the o1js `Cache` JSON, which spells them out in decimal. That takes
+the set from 27 MB to 7.9 MB and, since decoding bytes beats parsing decimal,
+it also shaves the startup compile. The trade is that jsoo cannot read these
+files — which costs nothing here, as the rust and jsoo caches are not
+interchangeable anyway.
 
 ## Compile cost
 
@@ -121,7 +124,7 @@ On a desktop, cumulatively:
 | original | 6259 ms |
 | pickles stops building a per-branch wrap it then drops | 4576 ms |
 | verifier-index cache embedded | 3469 ms |
-| SRS and Lagrange bases embedded too | 641 ms |
+| SRS and Lagrange bases embedded too | 547 ms |
 
 Measure the last row on any change with:
 

@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ark-ff = "0.5"
+base64 = "0.22"
 flate2 = "1"
 jni = "0.22.4"
 ledger = { package = "mina-tree", git = "https://github.com/youtpout/mina-rust", branch = "pickle-rs" }

@@ -1190,6 +1190,11 @@ mod compile_bench {
         payload.len() / 4 * 3
     }
 
+    fn base64_decode(payload: &str) -> Option<Vec<u8>> {
+        use base64::prelude::*;
+        BASE64_STANDARD.decode(payload).ok()
+    }
+
     fn first_branches(count: usize) -> CompileProgramRequest {
         let full = witness::compile_request().expect("compile request");
         CompileProgramRequest {
@@ -1235,33 +1240,38 @@ mod compile_bench {
             .expect("compile");
 
         let mut total = 0usize;
+        // The payloads are written in the compact binary layout, which is
+        // about a third of the o1js Cache JSON for the same points.
         let mut export = |name: String, request: ExportSrsCacheRequest| {
             if let Some(payload) = Backend::export_srs_cache(request).payload_base64 {
+                let bytes = base64_decode(&payload).expect("payload");
                 let path = format!("{out}/{name}");
-                std::fs::write(&path, &payload).expect("write payload");
-                total += payload.len();
-                eprintln!("{name}: {} bytes (base64)", payload.len());
+                std::fs::write(&path, &bytes).expect("write payload");
+                total += bytes.len();
+                eprintln!("{name}: {} bytes", bytes.len());
             }
         };
         for curve in ["vesta", "pallas"] {
             export(
-                format!("srs-{curve}.b64"),
+                format!("srs-{curve}.bin"),
                 ExportSrsCacheRequest {
                     curve: curve.to_owned(),
                     domain_log2: None,
+                    raw: true,
                 },
             );
             for domain_log2 in 0..=16u32 {
                 export(
-                    format!("lagrange-{curve}-{domain_log2}.b64"),
+                    format!("lagrange-{curve}-{domain_log2}.bin"),
                     ExportSrsCacheRequest {
                         curve: curve.to_owned(),
                         domain_log2: Some(domain_log2),
+                        raw: true,
                     },
                 );
             }
         }
-        eprintln!("total: {total} bytes (base64)");
+        eprintln!("total: {total} bytes");
     }
 
     /// Regenerates the embedded verifier-index cache and reports what it

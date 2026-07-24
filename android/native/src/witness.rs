@@ -79,13 +79,15 @@ include!(concat!(env!("OUT_DIR"), "/srs_payloads.rs"));
 /// the first compile does not have to build them. Returns how many payloads
 /// were accepted; zero simply means they get recomputed as before.
 pub fn seed_srs_payloads() -> usize {
+    use base64::prelude::*;
     SRS_PAYLOADS
         .iter()
         .filter(|(curve, domain_log2, payload)| {
             mina_runtime::Backend::seed_srs_cache(mina_runtime::SeedSrsCacheRequest {
                 curve: (*curve).to_owned(),
-                payload_base64: payload.trim().to_owned(),
+                payload_base64: BASE64_STANDARD.encode(payload),
                 domain_log2: *domain_log2,
+                raw: true,
             })
             .unwrap_or(false)
         })
