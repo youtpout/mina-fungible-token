@@ -65,16 +65,11 @@ android {
 }
 
 val nativeManifest = rootProject.file("native/Cargo.toml")
+val nativeLock = rootProject.file("native/Cargo.lock")
 val nativeOutput = layout.projectDirectory.dir("src/main/jniLibs")
-val minaRustSources = rootProject.fileTree("../../mina-rust") {
-    include("Cargo.toml", "Cargo.lock")
-    include("crates/**/Cargo.toml", "crates/**/*.rs")
-    include("libs/**/Cargo.toml", "libs/**/*.rs")
-    include("poseidon/Cargo.toml", "poseidon/**/*.rs")
-}
 
 val buildRustArm64 by tasks.registering(Exec::class) {
-    inputs.files(rootProject.fileTree("native/src"), nativeManifest, minaRustSources)
+    inputs.files(rootProject.fileTree("native/src"), nativeManifest, nativeLock)
     outputs.dir(nativeOutput.dir("arm64-v8a"))
     workingDir(rootProject.file("native"))
     commandLine(

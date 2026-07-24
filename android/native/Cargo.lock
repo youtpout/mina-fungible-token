@@ -1861,6 +1861,7 @@ dependencies = [
 [[package]]
 name = "mina-core"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "argon2",
  "ark-ff",
@@ -1928,6 +1929,7 @@ dependencies = [
 [[package]]
 name = "mina-macros"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "proc-macro2 1.0.103",
  "quote 1.0.35",
@@ -1937,6 +1939,7 @@ dependencies = [
 [[package]]
 name = "mina-p2p-messages"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "ark-ff",
  "ark-serialize",
@@ -1989,6 +1992,7 @@ dependencies = [
 [[package]]
 name = "mina-runtime"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "base64 0.22.1",
  "binprot",
@@ -2031,6 +2035,7 @@ dependencies = [
 [[package]]
 name = "mina-snark"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -2084,6 +2089,7 @@ dependencies = [
 [[package]]
 name = "mina-tree"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "anyhow",
  "ark-ec",
@@ -2539,6 +2545,7 @@ dependencies = [
 [[package]]
 name = "poseidon"
 version = "0.19.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "ark-ff",
  "ark-serialize",
@@ -2808,6 +2815,7 @@ dependencies = [
 [[package]]
 name = "redux"
 version = "0.1.0"
+source = "git+https://github.com/youtpout/mina-rust?branch=pickle-rs#4d1f476c3afb74056efe6b1275a6e9153149dde7"
 dependencies = [
  "enum_dispatch",
  "linkme",
