@@ -113,6 +113,25 @@
             android:text="Prove and send"
             android:textAllCaps="false" />
 
+        <ProgressBar
+            android:id="@+id/sendProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_marginTop="12dp"
+            android:indeterminate="true"
+            android:indeterminateTint="#8C66FF"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/sendStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#B9B7C7"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/result"
             android:layout_width="match_parent"

@@ -1181,69 +1181,51 @@ mod tests {
 }
 
 #[cfg(test)]
-mod debug_submit {
+mod compile_bench {
     use super::*;
+    use mina_runtime::{CompileCircuitRequest, CompileProgramRequest};
 
+    fn first_branches(count: usize) -> CompileProgramRequest {
+        let full = witness::compile_request().expect("compile request");
+        CompileProgramRequest {
+            branches: full
+                .branches
+                .into_iter()
+                .take(count)
+                .collect::<Vec<CompileCircuitRequest>>(),
+            cache_bytes_base64: None,
+            want_cache_bytes: false,
+        }
+    }
+
+    /// Splits the FungibleToken compile cost into its one-off SRS warm-up,
+    /// its per-branch cost, and the shared wrap. Proving only needs the
+    /// transfer branch, but the program's verification key is derived from
+    /// every branch, so all of them are compiled today.
     #[test]
-    #[ignore = "debug helper: writes the exact sendZkapp request body to MINA_DUMP_PATH"]
-    fn dump_send_zkapp_request_body() {
-        let sender_key = std::env::var("MINA_PRIVATE_KEY").expect("MINA_PRIVATE_KEY");
-        let receiver = std::env::var("MINA_RECEIVER_ADDRESS").expect("MINA_RECEIVER_ADDRESS");
-        let token_address = std::env::var("MINA_TOKEN_ADDRESS").expect("MINA_TOKEN_ADDRESS");
-        let graphql_url = std::env::var("MINA_GRAPHQL_URL").expect("MINA_GRAPHQL_URL");
-        let dump_path = std::env::var("MINA_DUMP_PATH").expect("MINA_DUMP_PATH");
+    #[ignore = "benchmark: decomposes the FungibleToken compile time"]
+    fn decompose_compile_time() {
+        let branch_count = witness::compile_request().expect("request").branches.len();
+        let time = |count: usize| {
+            let started = Instant::now();
+            backend()
+                .compile_program(first_branches(count))
+                .expect("compiled program");
+            started.elapsed().as_millis()
+        };
+        let cold_one = time(1);
+        let warm_one = time(1);
+        let warm_two = time(2);
+        let warm_all = time(branch_count);
+        let per_branch = warm_two.saturating_sub(warm_one);
 
-        let secret = SecKey::from_base58(&sender_key).unwrap();
-        let keypair = Keypair::try_from(secret).unwrap();
-        let sender = keypair.public.into_compressed();
-        let receiver = mina_signer::PubKey::from_address(&receiver).unwrap().into_compressed();
-        let token = mina_signer::PubKey::from_address(&token_address).unwrap().into_compressed();
-        let token_id = derive_token_id_base58(token.clone());
-        let snapshot = network::fetch_network_snapshot(
-            &graphql_url,
-            &sender.clone().into_address(),
-            &token_address,
-            &receiver.clone().into_address(),
-            &token_id,
-        ).unwrap();
-        let compiled = compiled_token().unwrap();
-        let blinding = Fp::rand(&mut rand::thread_rng());
-        let amount = 1_000_000_000u64;
-        let mut command = build_unsigned_transfer_command(
-            sender.clone(), receiver.clone(), token.clone(),
-            amount, 100_000_000, snapshot.fee_payer_nonce,
-            !snapshot.receiver_exists, snapshot.verification_key_hash, blinding,
-        );
-        let token_update = command.account_updates.0.last().unwrap();
-        let account_update_hash = token_update.elt.account_update_digest.get().unwrap();
-        let calls_hash = token_update.elt.calls.hash();
-        let witness = witness::generate_transfer_witness(witness::TransferWitnessInput {
-            account_update_hash, calls_hash,
-            token_x: token.x, token_is_odd: token.is_odd,
-            sender_x: sender.x, sender_is_odd: sender.is_odd,
-            receiver_x: receiver.x, receiver_is_odd: receiver.is_odd,
-            amount, blinding,
-            verification_key_hash: compiled.verification_key_hash,
-        }).unwrap();
-        let proof = backend().prove_circuit(ProveCircuitRequest {
-            circuit_id: compiled.transfer_circuit_id,
-            witness,
-        }).unwrap().transaction_proof.unwrap();
-        attach_transaction_proof(&mut command, &proof).unwrap();
-        let signed = sign_transfer_command(&command, &sender_key).unwrap();
-        let command_json = graphql_json::zkapp_command_json(&signed.command).unwrap();
-        let body = serde_json::json!({
-            "query": format!(
-                "mutation {{\n  sendZkapp(input: {{ zkappCommand: {} }}) {{\n    zkapp {{\n      hash\n      failureReason {{ failures index }}\n    }}\n  }}\n}}",
-                graphql_json::graphql_literal(&command_json)
-            )
-        });
-        std::fs::write(&dump_path, serde_json::to_string(&body).unwrap()).unwrap();
-        std::fs::write(
-            format!("{dump_path}.command.json"),
-            serde_json::to_string_pretty(&command_json).unwrap(),
-        )
-        .unwrap();
-        eprintln!("wrote {} bytes to {dump_path}", std::fs::metadata(&dump_path).unwrap().len());
+        eprintln!("branches                 : {branch_count}");
+        eprintln!("1 branch (cold, with SRS): {cold_one} ms");
+        eprintln!("1 branch (warm)          : {warm_one} ms");
+        eprintln!("2 branches (warm)        : {warm_two} ms");
+        eprintln!("{branch_count} branches (warm)       : {warm_all} ms");
+        eprintln!("SRS/Lagrange warm-up     : ~{} ms", cold_one.saturating_sub(warm_one));
+        eprintln!("per additional branch    : ~{per_branch} ms");
+        eprintln!("shared wrap + fixed cost : ~{} ms", warm_one.saturating_sub(per_branch));
     }
 }

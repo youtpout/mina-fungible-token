@@ -37,6 +37,18 @@ class MainActivity : Activity() {
         val send = findViewById<Button>(R.id.sendButton)
         val checkBalance = findViewById<Button>(R.id.checkBalanceButton)
         val tokenBalance = findViewById<TextView>(R.id.tokenBalance)
+        // The header progress bar and status scroll out of view during the
+        // long proving run, so mirror them right under the send button.
+        val sendProgress = findViewById<ProgressBar>(R.id.sendProgress)
+        val sendStatus = findViewById<TextView>(R.id.sendStatus)
+
+        fun showStatus(message: String, busy: Boolean) {
+            status.text = message
+            sendStatus.text = message
+            progress.visibility = if (busy) View.VISIBLE else View.GONE
+            sendProgress.visibility = if (busy) View.VISIBLE else View.GONE
+            sendStatus.visibility = View.VISIBLE
+        }
 
         executor.execute {
             val info = nativeBackendInfo()
@@ -52,8 +64,7 @@ class MainActivity : Activity() {
         checkBalance.setOnClickListener {
             send.isEnabled = false
             checkBalance.isEnabled = false
-            progress.visibility = View.VISIBLE
-            status.text = "Loading the selected address token balance…"
+            showStatus("Loading the selected address token balance…", busy = true)
             val request = JSONObject()
                 .put("address", receiver.text.toString())
                 .put("tokenAddress", tokenAddress.text.toString())
@@ -71,8 +82,7 @@ class MainActivity : Activity() {
                             "Token balance unavailable: ${json.optString("message")}"
                         }
                     }.getOrElse { "Token balance unavailable: native backend error" }
-                    progress.visibility = View.GONE
-                    status.text = "Balance check completed"
+                    showStatus("Balance check completed", busy = false)
                     send.isEnabled = true
                     checkBalance.isEnabled = true
                 }
@@ -82,8 +92,7 @@ class MainActivity : Activity() {
         send.setOnClickListener {
             send.isEnabled = false
             checkBalance.isEnabled = false
-            progress.visibility = View.VISIBLE
-            status.text = "Building and proving with native Rust…"
+            showStatus("Building and proving with native Rust…", busy = true)
             result.text = "Preparing the transaction…"
             val request = JSONObject()
                 .put("senderPrivateKey", privateKey.text.toString())
@@ -100,8 +109,7 @@ class MainActivity : Activity() {
                     privateKey.text.clear()
                     result.text = response
                     timings.text = formatTimings(response)
-                    progress.visibility = View.GONE
-                    status.text = transferStatus(response)
+                    showStatus(transferStatus(response), busy = false)
                     send.isEnabled = true
                     checkBalance.isEnabled = true
                 }
