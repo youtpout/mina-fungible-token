@@ -10,9 +10,6 @@ android/app/src/main/jniLibs/
 android/local.properties
 android/native/target/
 
-# Precomputed proving assets: generated locally, tens to hundreds of MB.
-# They are packed into the APK but must never reach the remote.
+# Precomputed proving assets are committed (see android/README.md): the
+# SRS and Lagrange payloads are a few MB each and reproducible.
 android/app/src/main/assets/
-android/native/assets/precomputed/
-*.srs
-*.lagrange
