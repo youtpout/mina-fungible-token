@@ -9,3 +9,10 @@ android/app/build/
 android/app/src/main/jniLibs/
 android/local.properties
 android/native/target/
+
+# Precomputed proving assets: generated locally, tens to hundreds of MB.
+# They are packed into the APK but must never reach the remote.
+android/app/src/main/assets/
+android/native/assets/precomputed/
+*.srs
+*.lagrange
