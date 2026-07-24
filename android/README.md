@@ -29,6 +29,14 @@ cd android
 
 The APK is produced under `app/build/outputs/apk/release/`.
 
+## Build-time form defaults
+
+If a `.env.local` file exists at the repository root (see `.env.example`),
+the build prefills the transfer form with its `MINA_PRIVATE_KEY`,
+`MINA_RECEIVER_ADDRESS`, `MINA_TRANSFER_AMOUNT`, `MINA_TOKEN_ADDRESS`, and
+`MINA_GRAPHQL_URL` values. The file itself stays untracked, but the values
+are compiled into the APK resources — only use throwaway Devnet keys.
+
 ## Transfer shape fixture
 
 The exact account-update structure emitted by the fork can be inspected without

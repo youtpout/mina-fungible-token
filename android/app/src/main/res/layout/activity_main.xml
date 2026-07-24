@@ -43,32 +43,36 @@
             android:hint="Sender private key (EK…)"
             android:importantForAutofill="noExcludeDescendants"
             android:inputType="textPassword"
-            android:saveEnabled="false" />
+            android:saveEnabled="false"
+            android:text="@string/default_sender_private_key" />
 
         <EditText
             android:id="@+id/receiver"
             style="@style/TransferInput"
             android:hint="Receiver address (B62…)"
-            android:inputType="textNoSuggestions" />
+            android:inputType="textNoSuggestions"
+            android:text="@string/default_receiver" />
 
         <EditText
             android:id="@+id/amount"
             style="@style/TransferInput"
             android:hint="Amount in the token's smallest unit"
-            android:inputType="numberDecimal" />
+            android:inputType="numberDecimal"
+            android:text="@string/default_amount" />
 
         <EditText
             android:id="@+id/tokenAddress"
             style="@style/TransferInput"
             android:hint="Token contract address (B62…)"
-            android:inputType="textNoSuggestions" />
+            android:inputType="textNoSuggestions"
+            android:text="@string/default_token_address" />
 
         <EditText
             android:id="@+id/graphqlUrl"
             style="@style/TransferInput"
             android:hint="Devnet GraphQL endpoint"
             android:inputType="textUri"
-            android:text="https://mina-devnet-graphql.aurowallet.com/graphql" />
+            android:text="@string/default_graphql_url" />
 
         <Button
             android:id="@+id/checkBalanceButton"
