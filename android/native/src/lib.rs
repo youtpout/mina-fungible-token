@@ -1465,6 +1465,27 @@ mod compile_bench {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".to_owned())
     }
 
+    /// Proving time, nothing else: no clock installed on the prover
+    /// checkpoints, no profile output, no phase accounting. The breakdown
+    /// benchmark pays a mutex and a string allocation per checkpoint, which is
+    /// fine for attributing time but not for reporting it.
+    #[test]
+    #[ignore = "benchmark: total proving time, unobserved"]
+    fn measure_proving_total() {
+        let compiled = compiled_token().expect("compiled FungibleToken program");
+        let witness = super::tests::transfer_witness_fixture(compiled.verification_key_hash);
+        let started = Instant::now();
+        let proof = backend()
+            .prove_circuit(ProveCircuitRequest {
+                circuit_id: compiled.transfer_circuit_id,
+                witness,
+            })
+            .expect("native transfer proof");
+        let elapsed = started.elapsed().as_millis();
+        assert!(proof.transaction_proof.is_some());
+        eprintln!("proving: {elapsed} ms");
+    }
+
     /// Splits the proving time across the prover phases kimchi already marks
     /// with checkpoints. They are free until a clock is installed, so the
     /// breakdown costs nothing in the shipped app; here it answers where the
