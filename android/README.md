@@ -141,19 +141,17 @@ zero.
 
 Expected timings, for calibration:
 
-| | CPU | RAM | compile | proving | total |
-| --- | --- | --- | --- | --- | --- |
-| Pixel 3, Android 12 | Snapdragon 845 (4× Kryo 385 Gold 2.8 GHz + 4× Silver 1.77 GHz) | 4 GB | 44.6 s | 13.7 s | 59.1 s |
-| desktop reference | AMD Ryzen 9 7950X (16 cores / 32 threads) | 32 GB | 6.3 s | 2.1 s | 9.1 s |
+| | CPU | RAM | compile | proving |
+| --- | --- | --- | --- | --- |
+| Pixel 3, Android 12 | Snapdragon 845 (4× Kryo 385 Gold 2.8 GHz + 4× Silver 1.77 GHz) | 4 GB | 2369 ms | 10 992 ms |
+| desktop reference | AMD Ryzen 9 7950X (16 cores / 32 threads) | 32 GB | 547 ms | 2104 ms |
 
-Both rows were measured **before** the verifier-index cache and the SRS payloads
-were embedded, so they show the raw cost of the phone against a desktop: about
-7× on compile and 6.5× on proving. The desktop compile has since dropped to
-547 ms with the assets in place (see [Compile cost](#compile-cost)); the phone
-has not been re-measured since, so treat its 44.6 s as an upper bound rather
-than what a current build does.
+Both rows are with the embedded assets, so this is what a build from this
+repository does. The phone is about 4× the desktop on compile and 5× on proving.
+For reference, the same Pixel 3 transfer cost 44.6 s of compile and 13.7 s of
+proving before the verifier-index cache and the SRS payloads were embedded: a
+19× cut on compile, which takes the whole transfer from 59 s to under 14 s.
 
-Proving is unaffected by the assets and stays around 13.7 s on the Pixel 3.
 Compile is a per-process `OnceLock`, so a second transfer in the same session
 skips it entirely and only pays the proving time.
 
@@ -233,12 +231,11 @@ threads, 32 GB):
 | verifier-index cache embedded | 3469 ms |
 | SRS and Lagrange bases embedded too | 547 ms |
 
-On a Pixel 3 (Snapdragon 845, 4 GB) only the first row has been measured, at
-44 615 ms. The phone tracked the desktop at a steady ~7× on every earlier
-benchmark, which would put a current build near 4 s — but that is extrapolation,
-not a measurement. Reproduce it on a connected device with a transfer from the
-app itself: the reported `compile` timing is this same number, and the run needs
-no network until it submits.
+On a Pixel 3 (Snapdragon 845, 4 GB) the two ends of that table are measured:
+44 615 ms originally, **2369 ms** with the cache and the SRS payloads embedded.
+Reproduce it on a connected device with a transfer from the app itself — the
+`compile` timing it reports is this number, and the run needs no network until it
+submits.
 
 Measure the desktop row on any change with:
 
