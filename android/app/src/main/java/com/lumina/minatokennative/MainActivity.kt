@@ -68,9 +68,10 @@ class MainActivity : Activity() {
 
         executor.execute {
             val info = nativeBackendInfo()
+            val build = buildRevisions(info)
             runOnUiThread {
                 status.text = "Native Rust backend loaded"
-                result.text = info
+                result.text = if (build == null) info else "$build\n\n$info"
                 progress.visibility = View.GONE
                 send.isEnabled = true
                 checkBalance.isEnabled = true
@@ -136,6 +137,22 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    // The git revisions the prover was built from, on one line, so two APKs
+    // that differ only by a dependency bump can be told apart on the phone.
+    // Pretty-printed JSON buries them below the fold, hence the summary.
+    private fun buildRevisions(info: String): String? = try {
+        val json = JSONObject(info)
+        val proofSystems = json.optString("proofSystemsRev")
+        val minaRust = json.optString("minaRustRev")
+        if (proofSystems.isEmpty() && minaRust.isEmpty()) {
+            null
+        } else {
+            "build: proof-systems $proofSystems · mina-rust $minaRust"
+        }
+    } catch (_: Exception) {
+        null
     }
 
     private fun transferStatus(response: String): String = try {

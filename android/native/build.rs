@@ -9,6 +9,8 @@ use std::{env, fs, path::Path};
 /// Names follow `srs-<curve>.bin` and `lagrange-<curve>-<domain_log2>.bin`,
 /// as written by the `export_srs_payloads` test.
 fn main() {
+    emit_dependency_revisions();
+
     let assets = Path::new("assets/precomputed");
     println!("cargo:rerun-if-changed=assets/precomputed");
 
@@ -44,4 +46,28 @@ fn main() {
     );
     let out = Path::new(&env::var("OUT_DIR").expect("OUT_DIR")).join("srs_payloads.rs");
     fs::write(out, generated).expect("write the payload table");
+}
+
+/// Exposes the git revisions the proving stack was locked to, so a build on a
+/// phone can be told apart from another one: the app reports them next to the
+/// backend versions. `Cargo.lock` is the only source that knows them, since the
+/// manifest only names branches.
+fn emit_dependency_revisions() {
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    let lock = fs::read_to_string("Cargo.lock").unwrap_or_default();
+
+    for (repository, variable) in [
+        ("proof-systems", "BUILD_PROOF_SYSTEMS_REV"),
+        ("mina-rust", "BUILD_MINA_RUST_REV"),
+    ] {
+        let revision = lock
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("source = \"git+"))
+            .find(|source| source.contains(repository))
+            .and_then(|source| source.rsplit_once('#'))
+            .map(|(_, revision)| revision.trim_end_matches('"'))
+            .map(|revision| revision.chars().take(8).collect::<String>())
+            .unwrap_or_else(|| "unknown".to_owned());
+        println!("cargo:rustc-env={variable}={revision}");
+    }
 }

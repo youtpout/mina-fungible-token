@@ -676,6 +676,25 @@ fn token_balance(request_json: &str) -> String {
     })
 }
 
+/// The backend's own versions, plus the git revisions this binary was built
+/// from. Two APKs that differ only by a dependency bump look identical on the
+/// phone otherwise, which makes A/B timings impossible to attribute.
+fn build_info() -> serde_json::Value {
+    let mut info =
+        serde_json::to_value(backend().info()).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(map) = info.as_object_mut() {
+        map.insert(
+            "proofSystemsRev".to_owned(),
+            serde_json::json!(env!("BUILD_PROOF_SYSTEMS_REV")),
+        );
+        map.insert(
+            "minaRustRev".to_owned(),
+            serde_json::json!(env!("BUILD_MINA_RUST_REV")),
+        );
+    }
+    info
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_lumina_minatokennative_MainActivity_nativeBackendInfo<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -684,8 +703,7 @@ pub extern "system" fn Java_com_lumina_minatokennative_MainActivity_nativeBacken
     unowned_env
         .with_env(|env| -> jni::errors::Result<_> {
             let value = catch_unwind(|| {
-                serde_json::to_string_pretty(&backend().info())
-                    .unwrap_or_else(|error| error.to_string())
+                serde_json::to_string_pretty(&build_info()).unwrap_or_else(|error| error.to_string())
             })
             .unwrap_or_else(|_| {
                 "The native Rust backend panicked during initialization".to_owned()
@@ -1133,19 +1151,14 @@ mod tests {
         );
     }
 
-    #[test]
-    #[ignore = "compiles all eleven FungibleToken methods and creates a native Pickles proof"]
-    fn compiles_and_proves_the_native_transfer_circuit() {
+    /// The transfer the prover is exercised with, shared by the proof test and
+    /// the proving benchmark so they always measure the same circuit. The
+    /// account update hash is the ledger digest of the transfer body built with
+    /// the embedded (real) verification key hash, matching what transfer()
+    /// feeds the prover at runtime.
+    pub(crate) fn transfer_witness_fixture(verification_key_hash: Fp) -> Vec<String> {
         let field = |value: &str| value.parse::<Fp>().expect("field test vector");
-        let compiled = compiled_token().expect("compiled FungibleToken program");
-        assert_eq!(
-            compiled.verification_key_hash.to_string(),
-            "11275266297357989434659649579180929660472107786900344600948115953037388411671"
-        );
-        // The account update hash is the ledger digest of the transfer body
-        // built with the embedded (real) verification key hash, matching what
-        // transfer() feeds the prover at runtime.
-        let witness = witness::generate_transfer_witness(witness::TransferWitnessInput {
+        witness::generate_transfer_witness(witness::TransferWitnessInput {
             account_update_hash: field(
                 "15537917634692260976475066310831007672684196481687388777173706295382163403812",
             ),
@@ -1168,9 +1181,20 @@ mod tests {
             blinding: field(
                 "8554297942514439850942263858623548274610807464913380485764394084910558078826",
             ),
-            verification_key_hash: compiled.verification_key_hash,
+            verification_key_hash,
         })
-        .expect("transfer witness");
+        .expect("transfer witness")
+    }
+
+    #[test]
+    #[ignore = "compiles all eleven FungibleToken methods and creates a native Pickles proof"]
+    fn compiles_and_proves_the_native_transfer_circuit() {
+        let compiled = compiled_token().expect("compiled FungibleToken program");
+        assert_eq!(
+            compiled.verification_key_hash.to_string(),
+            "11275266297357989434659649579180929660472107786900344600948115953037388411671"
+        );
+        let witness = transfer_witness_fixture(compiled.verification_key_hash);
         let proof = backend()
             .prove_circuit(ProveCircuitRequest {
                 circuit_id: compiled.transfer_circuit_id,
@@ -1352,5 +1376,135 @@ mod compile_bench {
         eprintln!("SRS/Lagrange warm-up     : ~{} ms", cold_one.saturating_sub(warm_one));
         eprintln!("per additional branch    : ~{per_branch} ms");
         eprintln!("shared wrap + fixed cost : ~{} ms", warm_one.saturating_sub(per_branch));
+    }
+
+    /// The bare multi-scalar multiplication the prover spends most of its time
+    /// in. Proof size is fixed by the SRS, not by the circuit, so these are the
+    /// exact sizes every zkApp proof pays: 2^16 on Vesta for the step proof and
+    /// 2^15 on Pallas for the wrap. Reported per curve as points per second, so
+    /// the same run on a desktop says whether the mobile figure is merely the
+    /// CPU gap or an implementation that leaves something on the table.
+    #[test]
+    #[ignore = "benchmark: raw MSM throughput at the prover's SRS sizes"]
+    fn measure_msm_throughput() {
+        use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, VariableBaseMSM};
+        use ark_ff::AdditiveGroup;
+        use mina_curves::pasta::{Pallas, Vesta};
+
+        fn bench<C: AffineRepr>(label: &str, size: usize)
+        where
+            C::Group: VariableBaseMSM<MulBase = C>,
+        {
+            let mut rng = rand::thread_rng();
+            let generator = C::generator();
+            // Distinct points, without paying a scalar multiplication each:
+            // doubling walks the subgroup and keeps the MSM honest.
+            let mut point = generator.into_group();
+            let points: Vec<C> = (0..size)
+                .map(|_| {
+                    let current = point.into_affine();
+                    point.double_in_place();
+                    current
+                })
+                .collect();
+            let scalars: Vec<<C::Group as PrimeGroup>::ScalarField> =
+                (0..size).map(|_| C::ScalarField::rand(&mut rng)).collect();
+
+            let started = Instant::now();
+            let _ = C::Group::msm(&points, &scalars).expect("msm");
+            let elapsed = started.elapsed();
+            eprintln!(
+                "{label:<22}: {size} points in {:>7.0} ms  ({:.0} points/s)",
+                elapsed.as_secs_f64() * 1000.0,
+                size as f64 / elapsed.as_secs_f64(),
+            );
+        }
+
+        eprintln!("threads                 : {}", rayon_threads());
+        bench::<Vesta>("step MSM (Vesta)", 1 << 16);
+        bench::<Pallas>("wrap MSM (Pallas)", 1 << 15);
+        // A witness-column commitment, for scale: the domain is only 2^11.
+        bench::<Vesta>("one witness column", 1 << 11);
+    }
+
+    /// Raw field-multiplication throughput. Everything above (base folding,
+    /// MSM, FFT, quotient) bottoms out here, and arkworks only has assembly
+    /// carry chains for x86_64 -- ARM and wasm fall back to portable Rust. The
+    /// desktop/mobile ratio measured here, compared to the ratio of the phases
+    /// that use it, says how much that fallback costs.
+    #[test]
+    #[ignore = "benchmark: raw field arithmetic throughput"]
+    fn measure_field_throughput() {
+        use mina_curves::pasta::{Fp, Fq};
+
+        fn bench<F: ark_ff::Field>(label: &str) {
+            let mut rng = rand::thread_rng();
+            let mut acc = F::rand(&mut rng);
+            let factor = F::rand(&mut rng);
+            let rounds = 20_000_000u64;
+            // A dependent chain: each multiplication waits for the previous
+            // one, so this measures latency, not what the scheduler can hide.
+            let started = Instant::now();
+            for _ in 0..rounds {
+                acc *= factor;
+            }
+            let elapsed = started.elapsed();
+            std::hint::black_box(acc);
+            eprintln!(
+                "{label:<12}: {:.1} ns/mul  ({:.1} M mul/s)",
+                elapsed.as_secs_f64() * 1e9 / rounds as f64,
+                rounds as f64 / elapsed.as_secs_f64() / 1e6,
+            );
+        }
+
+        bench::<Fp>("Fp (Vesta)");
+        bench::<Fq>("Fq (Pallas)");
+    }
+
+    fn rayon_threads() -> String {
+        std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".to_owned())
+    }
+
+    /// Splits the proving time across the prover phases kimchi already marks
+    /// with checkpoints. They are free until a clock is installed, so the
+    /// breakdown costs nothing in the shipped app; here it answers where the
+    /// ~13 s of a mobile transfer proof actually go, which decides whether an
+    /// MSM/FFT accelerator (GPU) has anything to accelerate.
+    #[test]
+    #[ignore = "benchmark: decomposes the FungibleToken proving time"]
+    fn decompose_proving_time() {
+        // A monotonic millisecond clock, as a plain fn pointer: `live_trace`
+        // takes no closure so the hook can stay a static.
+        static EPOCH: OnceLock<Instant> = OnceLock::new();
+        fn now_ms() -> f64 {
+            EPOCH.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+        }
+
+        let compiled = compiled_token().expect("compiled FungibleToken program");
+        let witness = super::tests::transfer_witness_fixture(compiled.verification_key_hash);
+
+        // The compile marks phases too; drop them so only proving is reported.
+        EPOCH.get_or_init(Instant::now);
+        kimchi::live_trace::set_clock(now_ms);
+        let _ = kimchi::live_trace::take_phase_times();
+
+        let started = Instant::now();
+        let proof = backend()
+            .prove_circuit(ProveCircuitRequest {
+                circuit_id: compiled.transfer_circuit_id,
+                witness,
+            })
+            .expect("native transfer proof");
+        let total = started.elapsed().as_millis();
+        assert!(proof.transaction_proof.is_some());
+
+        let mut phases = kimchi::live_trace::take_phase_times();
+        phases.sort_by(|left, right| right.1.total_cmp(&left.1));
+        let marked: f64 = phases.iter().map(|(_, ms, _)| ms).sum();
+        eprintln!("proving total            : {total} ms");
+        eprintln!("marked phases            : {marked:.0} ms");
+        for (name, ms, count) in &phases {
+            eprintln!("  {ms:>8.0} ms  x{count:<3} {name}");
+        }
     }
 }
