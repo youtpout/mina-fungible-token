@@ -119,20 +119,7 @@ impl Timings {
 }
 
 fn backend() -> &'static Backend {
-    BACKEND.get_or_init(|| {
-        // The base-folding kernel splits a round into equal chunks, one rayon
-        // task each. On this big.LITTLE phone a 4096-point chunk on a slow
-        // core holds the whole round while the fast ones idle; 1024 balances
-        // it without losing the batch inversion (512 and below measure
-        // worse). A/B on a Pixel 3: 11743/11921/11667 ms at 4096 against
-        // 11433/11452/11639 ms at 1024, interleaved to cancel thermal drift.
-        // Only set here, so desktop and wasm keep the default they were
-        // measured with.
-        if std::env::var_os("MINA_COMBINE_CHUNK").is_none() {
-            std::env::set_var("MINA_COMBINE_CHUNK", "1024");
-        }
-        Backend::default()
-    })
+    BACKEND.get_or_init(Backend::default)
 }
 
 fn compiled_token() -> Result<CompiledToken, String> {
