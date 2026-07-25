@@ -141,13 +141,21 @@ zero.
 
 Expected timings, for calibration:
 
-| | compile | proving | total |
-| --- | --- | --- | --- |
-| Pixel 3 (arm64, Android 12) | 44.6 s | 13.7 s | 59.1 s |
-| desktop reference | 6.3 s | 2.1 s | 9.1 s |
+| | CPU | RAM | compile | proving | total |
+| --- | --- | --- | --- | --- | --- |
+| Pixel 3, Android 12 | Snapdragon 845 (4× Kryo 385 Gold 2.8 GHz + 4× Silver 1.77 GHz) | 4 GB | 44.6 s | 13.7 s | 59.1 s |
+| desktop reference | AMD Ryzen 9 7950X (16 cores / 32 threads) | 32 GB | 6.3 s | 2.1 s | 9.1 s |
 
+Both rows were measured **before** the verifier-index cache and the SRS payloads
+were embedded, so they show the raw cost of the phone against a desktop: about
+7× on compile and 6.5× on proving. The desktop compile has since dropped to
+547 ms with the assets in place (see [Compile cost](#compile-cost)); the phone
+has not been re-measured since, so treat its 44.6 s as an upper bound rather
+than what a current build does.
+
+Proving is unaffected by the assets and stays around 13.7 s on the Pixel 3.
 Compile is a per-process `OnceLock`, so a second transfer in the same session
-skips it and only pays the proving time.
+skips it entirely and only pays the proving time.
 
 ### Prefilling the form at build time
 
@@ -215,7 +223,8 @@ its step verifier. The split is measurable with:
 cargo test --release decompose_compile_time -- --ignored --nocapture
 ```
 
-On a desktop, cumulatively:
+Cumulatively, on the desktop reference (AMD Ryzen 9 7950X, 16 cores / 32
+threads, 32 GB):
 
 | | compile |
 | --- | --- |
@@ -224,7 +233,14 @@ On a desktop, cumulatively:
 | verifier-index cache embedded | 3469 ms |
 | SRS and Lagrange bases embedded too | 547 ms |
 
-Measure the last row on any change with:
+On a Pixel 3 (Snapdragon 845, 4 GB) only the first row has been measured, at
+44 615 ms. The phone tracked the desktop at a steady ~7× on every earlier
+benchmark, which would put a current build near 4 s — but that is extrapolation,
+not a measurement. Reproduce it on a connected device with a transfer from the
+app itself: the reported `compile` timing is this same number, and the run needs
+no network until it submits.
+
+Measure the desktop row on any change with:
 
 ```sh
 cd android/native && cargo test --release measure_startup_compile -- --ignored --nocapture
