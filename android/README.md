@@ -141,16 +141,23 @@ zero.
 
 Expected timings, for calibration:
 
-| | CPU | RAM | compile | proving |
-| --- | --- | --- | --- | --- |
-| Pixel 3, Android 12 | Snapdragon 845 (4× Kryo 385 Gold 2.8 GHz + 4× Silver 1.77 GHz) | 4 GB | 2369 ms | 10 992 ms |
-| desktop reference | AMD Ryzen 9 7950X (16 cores / 32 threads) | 32 GB | 547 ms | 2104 ms |
+Measured on a Pixel 3 (Android 12, Snapdragon 845 — 4× Kryo 385 Gold 2.8 GHz +
+4× Silver 1.77 GHz, 4 GB) against a desktop (AMD Ryzen 9 7950X, 16 cores / 32
+threads, 32 GB):
 
-Both rows are with the embedded assets, so this is what a build from this
-repository does. The phone is about 4× the desktop on compile and 5× on proving.
-For reference, the same Pixel 3 transfer cost 44.6 s of compile and 13.7 s of
-proving before the verifier-index cache and the SRS payloads were embedded: a
-19× cut on compile, which takes the whole transfer from 59 s to under 14 s.
+| | compile | proving |
+| --- | --- | --- |
+| Pixel 3, **without** the embedded assets | 44 615 ms | 13 680 ms |
+| Pixel 3, with the embedded assets | 2369 ms | 10 992 ms |
+| desktop, **without** the embedded assets | 6259 ms | 2104 ms |
+| desktop, with the embedded assets | 547 ms | not re-measured |
+
+The "without" rows are what the app does when `assets/precomputed/` is empty and
+the verifier-index cache is missing — worth keeping in sight, since that is the
+fallback path and it still works, just slowly. Embedding the assets cuts the
+mobile compile by 19×, which takes the whole transfer from 59 s to under 14 s.
+With them in place the phone is about 4× the desktop on compile and 5× on
+proving.
 
 Compile is a per-process `OnceLock`, so a second transfer in the same session
 skips it entirely and only pays the proving time.
