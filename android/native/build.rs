@@ -1,9 +1,10 @@
 use std::{env, fs, path::Path};
 
 /// Collects whatever SRS and Lagrange payloads have been exported into
-/// `assets/precomputed/` and emits a table of them. The payloads are large
-/// and reproducible, so they are not committed: when the directory is empty
-/// the table is empty too and the app simply recomputes them on first use.
+/// `assets/precomputed/` and emits a table of them. The payloads are committed
+/// so that a fresh clone builds an app that starts fast, but they stay
+/// optional: when the directory is empty the table is empty too and the app
+/// simply recomputes them on first use.
 ///
 /// Names follow `srs-<curve>.bin` and `lagrange-<curve>-<domain_log2>.bin`,
 /// as written by the `export_srs_payloads` test.

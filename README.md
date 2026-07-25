@@ -28,6 +28,13 @@ npm i
 npm run task examples/<example-file-name>.ts
 ```
 
+## Android app
+
+[`android/`](./android) holds an Android app that proves a `transfer` on the
+phone with the native Rust Pickles backend and submits it to Devnet. Its
+[README](./android/README.md) covers building the APK, installing it on a
+device, and the proving assets embedded in it.
+
 ## License
 
 `mina-fungible-token` is [Apache licensed](LICENSE).
