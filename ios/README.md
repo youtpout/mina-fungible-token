@@ -128,11 +128,22 @@ cool. For scale, against the reference desktop (AMD Ryzen 9 7950X, 16 cores /
 | --- | --- | --- | --- |
 | Apple M4 | 367 ms | 47 ms | 1449 ms |
 | Ryzen 9 7950X | 488 ms | 60 ms | 1546 ms |
+| **iPhone 13 (A15)** | **~500 ms** | *included* | **~3000 ms** |
+| Alldocube tablet (Cortex-A78) | 1561 ms | ~105 ms | 6644 ms |
 | Pixel 3 (Snapdragon 845) | 2369 ms | ~200 ms | 10 992 ms (witness included) |
 
-A 10-core laptop chip matching a 32-thread desktop is the headline: proving is
-the parallel stage and the one that should favour the desktop, yet the two land
-within 7 %. Per-core throughput is carrying the M4.
+Two results worth separating.
+
+**A 10-core laptop chip matches a 32-thread desktop.** Proving is the parallel
+stage, the one that should favour the desktop, yet the M4 and the 7950X land
+within 7 %. Per-core throughput is carrying it.
+
+**A phone matches that desktop on compile.** The iPhone 13's ~500 ms is the
+7950X's 488 ms, on a chip in a pocket with no fan. Proving is where the phone
+pays — ~3 s against 1.5 — but that is 2.2× faster than the A78 tablet and 3.7×
+the Pixel 3, and it puts a full on-device transfer inside four seconds of
+compute. The A15 figures come from the app itself, so `proving` includes witness
+solving; the CLI is what tells the two apart.
 
 **Measure on an idle machine.** The first figures taken here were 617 / 73 /
 2951 ms — 1.8× off across every stage, because the run followed half an hour of
@@ -232,8 +243,12 @@ Verified on this checkout: `xcodebuild -sdk iphoneos -configuration Release`
 builds and links, producing an 18 MB arm64 bundle with the prover and its
 embedded assets inside and no dynamic library to chase.
 
-An iPhone 13 (A15, 6 cores, 4 GB) should land between the M4 and the A78 tablet
-on proving. Two things to watch: proving peaks near 560 MB of native heap, which
+Measured on an iPhone 13 (A15, 6 cores, 4 GB): **~500 ms compile, ~3 s
+proving** — the compile of a 32-thread desktop, and proving between the M4 and
+the A78 tablet. See [Read a machine's proving budget](#read-a-machines-proving-budget)
+for the full comparison.
+
+Two things to watch on a phone: proving peaks near 560 MB of native heap, which
 is comfortable at 4 GB but not free, and a phone throttles — read
 [../android/README.md](../android/README.md) on temperature before comparing any
 two runs.
