@@ -62,9 +62,13 @@ link_note=$(cargo rustc --release --lib --manifest-path "$native/Cargo.toml" \
 # swiftc passes -lSystem itself, so drop it here to keep the linker quiet.
 read -r -a link_flags <<< "$(printf '%s' "${link_note:--lc -lm}" | sed 's/-lSystem//g')"
 
+# `-dead_strip` is what the Xcode project passes and it matters here: the
+# archive is 170 MB of proof-system code, most of which nothing calls. Without
+# it the bundle keeps ~10 MB of unreachable text — 33 MB against 18.
 echo "==> swiftc $name"
 swiftc \
   -O -whole-module-optimization \
+  -Xlinker -dead_strip \
   -target "$target" \
   -sdk "$(xcrun --show-sdk-path --sdk macosx)" \
   -import-objc-header "$here/include/mina.h" \

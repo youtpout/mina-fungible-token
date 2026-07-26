@@ -212,25 +212,41 @@ by the build script; `ios/Sources/MinaBackend.swift` is the whole of the glue.
 ## On the iPhone
 
 The Swift is the same; a device needs a signed bundle, which means an Xcode
-target. The project is generated rather than committed — it would otherwise
-carry a team id and a machine's paths:
+target. Start to finish:
+
+**1. Prerequisites.** Xcode (the full app, not just the command-line tools) and
+Rust via `rustup`, plus the device target:
 
 ```sh
-./ios/xcodeproj.sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 ```
+
+**2. Form defaults.** Copy `.env.local` into place if you have not already — the
+same file and keys the Gradle build reads. The fields come up prefilled from it,
+so a build without one gives you empty fields, not a broken app.
+
+**3. Generate the project.** It is generated rather than committed, since it
+would otherwise carry a team id and a machine's paths:
 
 ```sh
-open ios/MinaTokenTransfer.xcodeproj
+./ios/xcodeproj.sh && open ios/MinaTokenTransfer.xcodeproj
 ```
 
-In Xcode, once: select the **MinaTokenTransfer** target → *Signing &
+**4. Sign it, once.** Select the **MinaTokenTransfer** target → *Signing &
 Capabilities* → tick *Automatically manage signing* and pick your team. A free
-Apple ID works — add it under *Settings → Accounts* if it is not there. Then
-pick your iPhone in the device menu and ⌘R.
+Apple ID works — add it under *Settings → Accounts* if it is not there.
 
-On the phone, the first launch of a free-provisioned build needs *Settings →
-General → VPN & Device Management → <your Apple ID> → Trust*. Such builds expire
-after seven days; rebuilding from Xcode renews them.
+**5. Pick your iPhone in the device menu and ⌘R.** The first build of a new
+triple compiles the whole proof-system stack and takes tens of minutes; after
+that it is seconds unless the Rust changes.
+
+**6. Trust it on the phone.** A free-provisioned build needs *Settings → General
+→ VPN & Device Management → <your Apple ID> → Trust* before it will launch.
+Those builds expire after seven days; rebuilding from Xcode renews them.
+
+Without a paid developer account this is the whole distribution story — there is
+no TestFlight and no `.ipa` to hand around. Anyone else who wants it builds it
+the same way, with their own Apple ID.
 
 Everything else is wired up already:
 
@@ -244,9 +260,32 @@ Everything else is wired up already:
 - `ios/include/mina.h` is the bridging header, and `ios/Sources/*.swift` are
   the sources — the same files the macOS build uses.
 
-Verified on this checkout: `xcodebuild -sdk iphoneos -configuration Release`
-builds and links, producing an 18 MB arm64 bundle with the prover and its
-embedded assets inside and no dynamic library to chase.
+### What it weighs
+
+**18 MB installed, about 12 MB compressed.** The bundle *is* the binary — there
+is not one resource file beside it, and no dynamic library to chase:
+
+| | |
+| --- | --- |
+| `__TEXT.__const` | 10.1 MB — the embedded assets |
+| `__TEXT.__text` | 6.8 MB — prover, witness solver, SwiftUI |
+| `__LINKEDIT` | 1.9 MB — symbol tables |
+
+So the data outweighs the code by half again. It is 7.6 MB of precomputed
+Lagrange bases and 1.1 MB of compressed contract, which is 6.8 MB expanded — an
+84 % ratio, worth keeping gzipped.
+
+Two things fall out of that. The static archive cargo produces is **170 MB**,
+and 18 MB survives the link: `-dead_strip` discards about 90 % of it as
+unreachable. And there is **no SRS to fetch on first launch** — everything is in
+the binary, which is what buys the ~500 ms compile. Without embedded assets the
+Pixel 3 spent 44 s on that same stage.
+
+Both build paths pass `-dead_strip` now. `build-macos.sh` did not, and its
+bundle was 33 MB against Xcode's 18 for the same program — 10 MB of text nothing
+calls.
+
+### What it costs to run
 
 Measured on an iPhone 13 (A15, 6 cores, 4 GB): **~500 ms compile, ~3 s
 proving**, on a chip warm from the build — the compile of a 32-thread desktop,
