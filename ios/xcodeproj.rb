@@ -29,6 +29,7 @@ sources = %w[
   MinaTokenTransferApp.swift
   TransferView.swift
   FormButtonStyle.swift
+  FormModifiers.swift
   MinaBackend.swift
   Defaults.generated.swift
 ]
@@ -67,6 +68,10 @@ settings = {
     'UIInterfaceOrientationLandscapeRight',
   # The pre-build phase shells out to cargo, which the script sandbox blocks.
   'ENABLE_USER_SCRIPT_SANDBOXING' => 'NO',
+  # cargo builds one archive, for aarch64-apple-ios-sim. Release would
+  # otherwise also try x86_64 and the link fails on a missing architecture —
+  # an Intel Mac would need `rustup target add x86_64-apple-ios` and a lipo.
+  'ARCHS[sdk=iphonesimulator*]' => 'arm64',
   # By path, not -l: cargo puts a .dylib of the same name beside the archive
   # (that is what Android loads) and the linker would prefer it, leaving the app
   # asking for a dynamic library that will not be on the phone.

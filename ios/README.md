@@ -56,7 +56,34 @@ transfer in the same session pays only the proving time.
 Both actions carry an explicit fill (`FormButtonStyle`): the macOS default
 bordered style draws its chrome in a near-black grey that vanishes against
 `#101018`, which made them invisible for the app's first second, while they are
-still disabled.
+still disabled. The fields follow `values/transfer_input.xml` in the same
+spirit — no box, a `#8C66FF` underline, white text, `#888596` placeholder —
+because the stock rounded-border field is a white slab on this form.
+
+Each field also opts out of autocorrection and autocapitalisation, and asks for
+the keyboard its content needs. That is not cosmetic on iOS: the default
+behaviour capitalises the first letter, which silently invalidates a `B62q…`
+address. Android sets `textNoSuggestions` in the layout for the same reason.
+
+### Narrow screens
+
+Three things made the form hang off an iPhone 13 mini's 375 pt, all fixed and
+worth knowing before adding to it:
+
+- `.frame(minWidth: 520)` on the root view. On macOS that is a window hint; on
+  iOS it is a hard constraint on the view, so every `maxWidth: .infinity`
+  control inside was laid out 520 pt wide. It is now behind `#if os(macOS)`.
+- The response JSON. A compact JSON payload is one long line with nowhere to
+  break, so as a plain `Text` it demanded its full width and the enclosing
+  `VStack` — and every control in it — grew to match. It is now re-indented for
+  display and sits in a horizontal `ScrollView`, which takes the width it is
+  given.
+- Single-line truncation on the status and balance lines, where a node error
+  message or a transaction hash needs to wrap. `.wrapping()` in
+  `FormModifiers.swift`.
+
+Verified on an iPhone 13 mini simulator, backend loaded and a real balance query
+answered.
 
 `MainActivity.kt` is the reference for behaviour. Anything visible in
 `ios/Sources/TransferView.swift` should match it.
@@ -211,8 +238,26 @@ is comfortable at 4 GB but not free, and a phone throttles — read
 [../android/README.md](../android/README.md) on temperature before comparing any
 two runs.
 
-For the simulator instead, pick one in the device menu; it runs at Mac speed
-and measures the Mac, not the phone.
+### The simulator
+
+Pick one in Xcode's device menu, or drive it from the command line:
+
+```sh
+xcrun simctl create "iPhone 13 mini" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-13-mini \
+  com.apple.CoreSimulator.SimRuntime.iOS-26-3
+```
+
+```sh
+xcodebuild -project ios/MinaTokenTransfer.xcodeproj -scheme MinaTokenTransfer \
+  -sdk iphonesimulator -configuration Release \
+  -derivedDataPath ios/build/DerivedData \
+  -destination 'platform=iOS Simulator,name=iPhone 13 mini' \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+Useful for layout on a small screen, which is what it was used for here. It runs
+at Mac speed, so it measures the Mac and not the phone.
 
 ## Troubleshooting
 

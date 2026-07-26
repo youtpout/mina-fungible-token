@@ -6,9 +6,17 @@ import SwiftUI
 struct MinaTokenTransferApp: App {
     var body: some Scene {
         WindowGroup("Mina token transfer") {
-            TransferView()
-                .frame(minWidth: 520, minHeight: 620)
+            // A minimum size is a window hint on macOS but a hard constraint on
+            // the view itself on iOS, where 520 pt is wider than an iPhone 13
+            // mini's 375 — every control then hangs off the screen.
+            #if os(macOS)
+                TransferView().frame(minWidth: 520, minHeight: 620)
+            #else
+                TransferView()
+            #endif
         }
-        .defaultSize(width: 620, height: 860)
+        #if os(macOS)
+            .defaultSize(width: 620, height: 860)
+        #endif
     }
 }

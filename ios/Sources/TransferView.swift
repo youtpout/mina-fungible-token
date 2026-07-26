@@ -39,13 +39,13 @@ struct TransferView: View {
     private static let secondaryText = Color(red: 0xB9 / 255, green: 0xB7 / 255, blue: 0xC7 / 255)
     private static let bodyText = Color(red: 0xD9 / 255, green: 0xD5 / 255, blue: 0xE8 / 255)
     private static let timingText = Color(red: 0xAF / 255, green: 0xA9 / 255, blue: 0xC8 / 255)
+    private static let placeholderText = Color(red: 0x88 / 255, green: 0x85 / 255, blue: 0x96 / 255)
 
     var body: some View {
         ScrollView {
             form
         }
         .background(Self.background)
-        .textFieldStyle(.roundedBorder)
         .onAppear(perform: loadBackend)
     }
 
@@ -67,10 +67,8 @@ struct TransferView: View {
                     ProgressView().progressViewStyle(.linear).tint(Self.accent)
                 }
 
-                field("Sender private key (EK…)") {
-                    SecureField("Sender private key (EK…)", text: $privateKey)
-                        .disabled(keyLocked)
-                }
+                input("Sender private key (EK…)", text: $privateKey, secure: true)
+                    .disabled(keyLocked)
 
                 if keyLocked {
                     Button("Use a different key") {
@@ -81,18 +79,10 @@ struct TransferView: View {
                     .foregroundStyle(Self.accent)
                 }
 
-                field("Receiver address (B62…)") {
-                    TextField("Receiver address (B62…)", text: $receiver)
-                }
-                field("Amount in the token's smallest unit") {
-                    TextField("Amount in the token's smallest unit", text: $amount)
-                }
-                field("Token contract address (B62…)") {
-                    TextField("Token contract address (B62…)", text: $tokenAddress)
-                }
-                field("Devnet GraphQL endpoint") {
-                    TextField("Devnet GraphQL endpoint", text: $graphqlUrl)
-                }
+                input("Receiver address (B62…)", text: $receiver)
+                input("Amount in the token's smallest unit", text: $amount, keyboard: .decimalPad)
+                input("Token contract address (B62…)", text: $tokenAddress)
+                input("Devnet GraphQL endpoint", text: $graphqlUrl, keyboard: .URL)
 
                 Button("Check selected address token balance", action: checkBalance)
                     .buttonStyle(FormButtonStyle.secondary)
@@ -102,6 +92,7 @@ struct TransferView: View {
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(Self.bodyText)
                     .textSelection(.enabled)
+                    .wrapping()
 
                 checkbox("Create the receiver token account when needed", isOn: $fundReceiver)
 
@@ -120,32 +111,71 @@ struct TransferView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(Self.secondaryText)
                         .textSelection(.enabled)
+                        .wrapping()
                 }
 
-                Text(result)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(Self.bodyText)
-                    .textSelection(.enabled)
-                    .padding(.top, 8)
+                // The response is JSON, and a JSON token has nowhere to break:
+                // as a plain Text it demands its full width, the enclosing VStack
+                // grows to match, and every `maxWidth: .infinity` control is
+                // dragged off a phone screen with it. A horizontal ScrollView
+                // takes the width it is given and scrolls the overflow instead.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(result)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(Self.bodyText)
+                        .textSelection(.enabled)
+                }
+                .padding(.top, 8)
 
                 Text(timings)
                     .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(Self.timingText)
                     .textSelection(.enabled)
+                    .wrapping()
                     .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
     }
 
-    /// A labelled input, since a macOS window has the room the phone form
-    /// gives to `android:hint` alone.
-    private func field<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    /// One labelled input, styled after `values/transfer_input.xml`: no box, a
+    /// `#8C66FF` underline, white 15pt text and a `#888596` placeholder. The
+    /// standard rounded-border field would put a white slab on the dark form.
+    ///
+    /// The label above it is the one addition the phone form does not need —
+    /// Android leans on `android:hint`, which vanishes as soon as a value is
+    /// prefilled, and every one of these fields is prefilled.
+    private func input(
+        _ label: String,
+        text: Binding<String>,
+        secure: Bool = false,
+        keyboard: PlainInputKeyboard = .default
+    ) -> some View {
+        let prompt = Text(label).foregroundStyle(Self.placeholderText)
+
+        return VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.system(size: 12))
                 .foregroundStyle(Self.secondaryText)
-            content()
+
+            Group {
+                if secure {
+                    SecureField(label, text: text, prompt: prompt)
+                } else {
+                    TextField(label, text: text, prompt: prompt)
+                }
+            }
+            .textFieldStyle(.plain)
+            .plainInput(keyboard)
+            .font(.system(size: 15))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .frame(height: 40)
+            .background(alignment: .bottom) {
+                Rectangle()
+                    .fill(Self.accent)
+                    .frame(height: 2)
+            }
         }
     }
 
@@ -171,7 +201,7 @@ struct TransferView: View {
     private func loadBackend() {
         MinaBackend.backendInfo { info in
             backendStatus = "Native Rust backend loaded"
-            result = info
+            result = prettyJSON(info)
             loadingBackend = false
             ready = true
         }
@@ -207,7 +237,7 @@ struct TransferView: View {
         MinaBackend.transfer(request) { response in
             let parsed = TransferResponse(response)
             keyLocked = true
-            result = response
+            result = prettyJSON(response)
             timings = parsed.timingLines
             showStatus(parsed.transferStatus, busy: false)
             ready = true

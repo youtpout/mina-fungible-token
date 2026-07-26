@@ -82,6 +82,22 @@ struct BalanceRequest {
     }
 }
 
+/// Re-indents a JSON response for the result panel. Compact JSON is one long
+/// line with nothing to break on, which no narrow screen can lay out; this puts
+/// a newline between the fields. Anything unparseable is shown as it came.
+func prettyJSON(_ raw: String) -> String {
+    guard let value = try? JSONSerialization.jsonObject(with: Data(raw.utf8)),
+          let data = try? JSONSerialization.data(
+              withJSONObject: value,
+              options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+          ),
+          let pretty = String(data: data, encoding: .utf8)
+    else {
+        return raw
+    }
+    return pretty
+}
+
 /// Serialises a flat object. `JSONSerialization` would reorder the keys, which
 /// costs nothing here, but it also refuses non-`NSObject` values, so booleans
 /// are wrapped explicitly.

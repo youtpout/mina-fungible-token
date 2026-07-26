@@ -36,6 +36,7 @@ swiftc \
   "$here/tools/snapshot.swift" \
   "$here"/Sources/TransferView.swift \
   "$here"/Sources/FormButtonStyle.swift \
+  "$here"/Sources/FormModifiers.swift \
   "$here"/Sources/MinaBackend.swift \
   "$here"/Sources/Defaults.generated.swift \
   "$archive" \

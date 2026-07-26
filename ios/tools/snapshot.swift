@@ -36,7 +36,6 @@ func snapshot(width: CGFloat, height: CGFloat, to path: String) {
             .frame(width: width)
             .frame(minHeight: height, alignment: .top)
             .background(Color(red: 0x10 / 255, green: 0x10 / 255, blue: 0x18 / 255))
-            .textFieldStyle(.roundedBorder)
     )
     renderer.scale = 2
 
