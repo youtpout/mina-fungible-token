@@ -15,6 +15,9 @@ android/                the Gradle app (Kotlin, one Activity)
 ios/Sources/            the SwiftUI screen — macOS and iOS from one source
 ios/include/mina.h      the C interface as Swift sees it
 ios/build-macos.sh      cargo → swiftc → .app, no Xcode project
+ios/xcodeproj.sh        generates the Xcode project for a device build
+ios/build-rust.sh       the project's pre-build phase: cargo for the right triple
+ios/generate-defaults.sh  form defaults from .env.local, shared by both builds
 ios/snapshot.sh         renders the form to a PNG, no window needed
 ```
 
@@ -163,22 +166,53 @@ the boundary and turned into `{"status":"error",…}` rather than crossing it.
 Swift reaches them through `ios/include/mina.h`, imported as a bridging header
 by the build script; `ios/Sources/MinaBackend.swift` is the whole of the glue.
 
-## On to the device
+## On the iPhone
 
-The screen is already platform-agnostic (the one `#if os(macOS)` is the
-checkbox style), so an iOS build needs the target and an Xcode project:
+The Swift is the same; a device needs a signed bundle, which means an Xcode
+target. The project is generated rather than committed — it would otherwise
+carry a team id and a machine's paths:
 
 ```sh
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-cargo build --release --lib --target aarch64-apple-ios-sim   # or aarch64-apple-ios
+./ios/xcodeproj.sh
 ```
 
-Then an app target linking `target/<triple>/release/libmina_token_mobile.a`,
-with `ios/include/mina.h` as its bridging header and `ios/Sources/*.swift` as
-its sources. A free Apple ID is enough to run it on your own device, with
-builds expiring after seven days. Note the memory ceiling: proving peaks near
-560 MB of native heap, which is fine on an iPhone but worth watching against
-the jetsam limit on older ones.
+```sh
+open ios/MinaTokenTransfer.xcodeproj
+```
+
+In Xcode, once: select the **MinaTokenTransfer** target → *Signing &
+Capabilities* → tick *Automatically manage signing* and pick your team. A free
+Apple ID works — add it under *Settings → Accounts* if it is not there. Then
+pick your iPhone in the device menu and ⌘R.
+
+On the phone, the first launch of a free-provisioned build needs *Settings →
+General → VPN & Device Management → <your Apple ID> → Trust*. Such builds expire
+after seven days; rebuilding from Xcode renews them.
+
+Everything else is wired up already:
+
+- The pre-build phase runs `ios/build-rust.sh`, which picks the triple from
+  `PLATFORM_NAME` — `aarch64-apple-ios` for the phone,
+  `aarch64-apple-ios-sim` for the simulator — and regenerates the form
+  defaults. The first build of a new triple compiles the whole proof-system
+  stack and takes tens of minutes; the device one is already done here.
+- The target links the archive **by path**, per SDK, for the reason in
+  *Troubleshooting* below.
+- `ios/include/mina.h` is the bridging header, and `ios/Sources/*.swift` are
+  the sources — the same files the macOS build uses.
+
+Verified on this checkout: `xcodebuild -sdk iphoneos -configuration Release`
+builds and links, producing an 18 MB arm64 bundle with the prover and its
+embedded assets inside and no dynamic library to chase.
+
+An iPhone 13 (A15, 6 cores, 4 GB) should land between the M4 and the A78 tablet
+on proving. Two things to watch: proving peaks near 560 MB of native heap, which
+is comfortable at 4 GB but not free, and a phone throttles — read
+[../android/README.md](../android/README.md) on temperature before comparing any
+two runs.
+
+For the simulator instead, pick one in the device menu; it runs at Mac speed
+and measures the Mac, not the phone.
 
 ## Troubleshooting
 

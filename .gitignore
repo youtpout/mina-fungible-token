@@ -14,4 +14,5 @@ shared/native/target/
 # SRS and Lagrange payloads are a few MB each and reproducible.
 android/app/src/main/assets/
 ios/build/
+ios/MinaTokenTransfer.xcodeproj/
 ios/Sources/Defaults.generated.swift
