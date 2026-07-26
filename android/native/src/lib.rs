@@ -1487,6 +1487,22 @@ mod compile_bench {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".to_owned())
     }
 
+    /// Witness solving alone, the step the app counts inside its `proving`
+    /// window but this benchmark's proving figure does not. Separating them
+    /// says whether the app/bench gap is arithmetic (it would scale with the
+    /// core) or something else.
+    #[test]
+    #[ignore = "benchmark: witness solving alone"]
+    fn measure_witness_generation() {
+        let compiled = compiled_token().expect("compiled FungibleToken program");
+        for _ in 0..3 {
+            let started = Instant::now();
+            let witness = super::tests::transfer_witness_fixture(compiled.verification_key_hash);
+            let elapsed = started.elapsed().as_millis();
+            eprintln!("witness: {elapsed} ms ({} field elements)", witness.len());
+        }
+    }
+
     /// Proving time, nothing else: no clock installed on the prover
     /// checkpoints, no profile output, no phase accounting. The breakdown
     /// benchmark pays a mutex and a string allocation per checkpoint, which is

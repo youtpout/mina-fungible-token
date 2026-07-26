@@ -508,7 +508,18 @@ pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<Stri
         .get(program.transfer_branch)
         .ok_or_else(|| "the embedded transfer branch is missing".to_owned())?
         .circuit;
+    // Phase timing, off unless MINA_WITNESS_PROFILE is set.
+    let profile = std::env::var_os("MINA_WITNESS_PROFILE").is_some();
+    let mut mark = std::time::Instant::now();
+    let mut lap = |label: &str| {
+        if profile {
+            eprintln!("[witness] {label}: {:.1?}", mark.elapsed());
+            mark = std::time::Instant::now();
+        }
+    };
+
     let mut witness = parse_witness(&program.transfer_witness_template)?;
+    lap("parse the template");
     let mut protected: HashSet<u32> = [0, 1, 2, 3, 5, 6, 7, 9, 10, 12, 25, 1109]
         .into_iter()
         .collect();
@@ -526,17 +537,34 @@ pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<Stri
     witness[1109] = input.verification_key_hash;
     seed_amount_assertions(witness[12], &mut witness)?;
     seed_is_zero_assertions(circuit, &mut witness, &mut protected);
+    lap("seed");
 
-    for _ in 0..20 {
+    // The repair loop is a fixed point: once a pass leaves the witness
+    // untouched, every later pass would too. `repair_constraint` reports
+    // whether it handled a constraint, not whether it changed anything, so the
+    // witness itself is the signal.
+    let mut previous = witness.clone();
+    for pass in 0..20 {
         seed_amount_assertions(witness[12], &mut witness)?;
         seed_is_zero_assertions(circuit, &mut witness, &mut protected);
         for constraint in &circuit.constraints {
             seed_is_zero_assertions(circuit, &mut witness, &mut protected);
             let _ = repair_constraint(constraint, &mut witness, &protected)?;
         }
+        lap(&format!("pass {pass}"));
+        if witness == previous {
+            break;
+        }
+        previous.copy_from_slice(&witness);
     }
     validate_witness(circuit, &witness)?;
-    Ok(witness.into_iter().map(|value| value.to_string()).collect())
+    lap("validate");
+    let out = witness
+        .into_iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<String>>();
+    lap("format as decimal strings");
+    Ok(out)
 }
 
 #[cfg(test)]
