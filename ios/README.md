@@ -128,7 +128,7 @@ cool. For scale, against the reference desktop (AMD Ryzen 9 7950X, 16 cores /
 | --- | --- | --- | --- |
 | Apple M4 | 367 ms | 47 ms | 1449 ms |
 | Ryzen 9 7950X | 488 ms | 60 ms | 1546 ms |
-| **iPhone 13 (A15)**, warm | **~500 ms** | *included* | **~3000 ms** |
+| **iPhone 13 mini (A15)**, warm | **568 ms** | *included* | **2837 ms** |
 | Alldocube tablet (Cortex-A78) | 1561 ms | ~105 ms | 6644 ms |
 | Pixel 3 (Snapdragon 845) | 2369 ms | ~200 ms | 10 992 ms (witness included) |
 
@@ -138,8 +138,8 @@ Two results worth separating.
 stage, the one that should favour the desktop, yet the M4 and the 7950X land
 within 7 %. Per-core throughput is carrying it.
 
-**A phone matches that desktop on compile.** The iPhone 13's ~500 ms is the
-7950X's 488 ms, on a chip in a pocket with no fan. Proving is where the phone
+**A phone matches that desktop on compile.** The iPhone 13 mini's 568 ms is
+the 7950X's 488 ms, on a chip in a pocket with no fan. Proving is where the phone
 pays — ~3 s against 1.5 — but that is 2.2× faster than the A78 tablet and 3.7×
 the Pixel 3, and it puts a full on-device transfer inside four seconds of
 compute. The A15 figures come from the app itself, so `proving` includes witness
@@ -287,7 +287,7 @@ calls.
 
 ### What it costs to run
 
-Measured on an iPhone 13 (A15, 6 cores, 4 GB): **~500 ms compile, ~3 s
+Measured on an iPhone 13 mini (A15, 6 cores, 4 GB): **568 ms compile, 2837 ms
 proving**, on a chip warm from the build — the compile of a 32-thread desktop,
 and proving between the M4 and the A78 tablet. See [Read a machine's proving budget](#read-a-machines-proving-budget)
 for the full comparison.
