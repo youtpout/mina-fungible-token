@@ -162,6 +162,35 @@ proving.
 Compile is a per-process `OnceLock`, so a second transfer in the same session
 skips it entirely and only pays the proving time.
 
+The `proving` figure the app reports **includes solving the witness**, not just
+the prover: the timer opens before `generate_transfer_witness`. On a Pixel 3 that
+stage is ~200 ms and on a Dimensity 900 tablet ~105 ms. Use
+`cargo run --release --bin mina` (see [Desktop build](#desktop-build-macos-linux))
+to see the two apart.
+
+### Temperature dominates everything
+
+The same device, same build, only the chip's temperature differs:
+
+| Pixel 3 | compile | proving |
+| --- | --- | --- |
+| hot, ~40 °C | 3120 ms | 12 320 – 14 016 ms |
+| room temperature | 2472 ms | 12 408 ms |
+| chilled to 14 °C | 2308 ms | **8421 ms** |
+
+Roughly a third off the proving time for a colder chip — more than every
+software change measured on this app put together. Worth knowing before reading
+any two runs as a regression: compare numbers taken at the same temperature, and
+interleave A/B runs rather than batching them.
+
+A second device makes the same point about hardware. On an Alldocube iPlay 70
+mini Pro (MediaTek MT6877, 2× Cortex-A78 2.4 GHz + 6× A55), cool:
+
+| | compile | proving |
+| --- | --- | --- |
+| tablet, A78 | 1561 ms | 6644 ms |
+| Pixel 3, A75 | 2308 – 3120 ms | 8421 – 14 016 ms |
+
 ### Prefilling the form at build time
 
 If a `.env.local` file exists at the repository root, the build prefills the
