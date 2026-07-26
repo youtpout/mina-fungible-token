@@ -550,6 +550,38 @@ pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<Stri
     Ok(witness.into_iter().map(|value| value.to_string()).collect())
 }
 
+/// The transfer the offline benchmark and the proof test both use: a real
+/// account-update digest, produced with the embedded verification key hash, so
+/// the witness it solves is the one `transfer()` would feed the prover.
+pub fn sample_transfer_witness(verification_key_hash: Fp) -> Result<Vec<String>, String> {
+    let field = |value: &str| parse_field(value);
+    generate_transfer_witness(TransferWitnessInput {
+        account_update_hash: field(
+            "15537917634692260976475066310831007672684196481687388777173706295382163403812",
+        )?,
+        calls_hash: field(
+            "7652688051181415380811715514734574835653779492253782967014461790261901546813",
+        )?,
+        token_x: field(
+            "2919996120512407313014062828808255422013969845275374011406132452783934981066",
+        )?,
+        token_is_odd: false,
+        sender_x: field(
+            "26128929354271999245285962662286734919718711533760999607904852494858390193731",
+        )?,
+        sender_is_odd: false,
+        receiver_x: field(
+            "28755616151314178074317148383765615429855032205626421959078684078997276329907",
+        )?,
+        receiver_is_odd: true,
+        amount: 777,
+        blinding: field(
+            "8554297942514439850942263858623548274610807464913380485764394084910558078826",
+        )?,
+        verification_key_hash,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

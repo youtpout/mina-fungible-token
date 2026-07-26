@@ -37,6 +37,10 @@ use mina_runtime::{
 use mina_signer::{CompressedPubKey, Keypair, SecKey, Signature};
 use serde::{Deserialize, Serialize};
 
+/// A desktop front end (macOS, Linux) drives the same prover through here.
+pub mod bench;
+/// C entry points for the Apple targets; the JNI ones below serve Android.
+pub mod ffi;
 pub mod graphql_json;
 pub mod network;
 pub mod witness;
@@ -45,9 +49,9 @@ static BACKEND: OnceLock<Backend> = OnceLock::new();
 static COMPILED_TOKEN: OnceLock<Result<CompiledToken, String>> = OnceLock::new();
 
 #[derive(Clone, Copy)]
-struct CompiledToken {
-    transfer_circuit_id: ResourceId,
-    verification_key_hash: Fp,
+pub struct CompiledToken {
+    pub transfer_circuit_id: ResourceId,
+    pub verification_key_hash: Fp,
 }
 
 #[derive(Debug, Deserialize)]

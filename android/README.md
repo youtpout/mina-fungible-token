@@ -285,3 +285,62 @@ npm run task -- android/tools/export-account-update-hash.ts <command.json> [upda
   peaks near 560 MB of native heap.
 - **`adb` cannot see the phone on Linux** — udev rules are often missing for USB
   debugging. Use wireless debugging instead of chasing the rule.
+
+## Desktop build (macOS, Linux)
+
+The prover has no Android in it: the same crate builds a command-line binary
+that compiles the program, solves the transfer witness and proves it, which is
+the quickest way to read a machine's proving budget. On an Apple Silicon Mac
+this is the native target — no Xcode project, no cross-compilation, no
+provisioning.
+
+Prerequisites: Rust (`rustup`), and on macOS the command-line tools for the
+linker (`xcode-select --install`).
+
+```sh
+cd android/native
+cargo run --release --bin mina
+```
+
+```
+compile : 488 ms
+witness : 60 ms
+proving : 1546 ms
+total   : 2094 ms
+proof   : 32248 bytes of transaction proof
+```
+
+Those figures are a Ryzen 9 7950X; a Pixel 3 is roughly 5x slower and a
+Dimensity 900 tablet 3x. The three stages are timed apart on purpose: the app
+reports the witness solving inside its `Proving` figure, so this is how the two
+are told apart.
+
+To perform a real transfer, pass the request the app's form would collect:
+
+```sh
+cargo run --release --bin mina -- --transfer request.json
+```
+
+```json
+{
+  "senderPrivateKey": "EKE...",
+  "receiver": "B62q...",
+  "amount": "1000000000",
+  "tokenAddress": "B62q...",
+  "graphqlUrl": "https://mina-devnet-graphql.aurowallet.com/graphql",
+  "fundReceiver": true
+}
+```
+
+It prints the same JSON response the app displays, timings included, and
+submits to the node — the code path is literally the one `nativeTransfer`
+calls.
+
+### Towards iOS
+
+`src/ffi.rs` exposes the same three operations as `extern "C"` functions
+(`mina_backend_info`, `mina_transfer`, `mina_token_balance`, plus
+`mina_string_free`), and the crate builds a `staticlib` alongside the Android
+`cdylib`. That is what an Xcode target links against; a SwiftUI screen can then
+serve both iOS and macOS from one source. A free Apple ID is enough to run it
+on your own device, with builds expiring after seven days.

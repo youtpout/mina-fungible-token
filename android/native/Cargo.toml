@@ -5,7 +5,9 @@ edition = "2021"
 license = "Apache-2.0"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# staticlib for the Apple targets (Xcode links a static archive),
+# cdylib for the Android .so, rlib for the tests and benchmarks.
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 ark-ff = "0.5"
