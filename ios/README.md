@@ -1,0 +1,196 @@
+# Apple front end (macOS now, iOS next)
+
+The same prover as the Android app, with the same form on top of it. Nothing in
+`shared/native` is Android-specific: the crate builds a `cdylib` for Android, a
+`staticlib` for the Apple targets, and a command-line binary for either
+desktop. The three interfaces sit side by side —
+`shared/native/src/lib.rs` for JNI, `shared/native/src/ffi.rs` for C, and
+`shared/native/src/bin/mina.rs` for the terminal — over one prover, one witness
+solver and one set of embedded assets.
+
+```
+shared/native/          the prover, the assets, JNI + C + CLI entry points
+shared/tools/           the o1js-side export and fixture scripts
+android/                the Gradle app (Kotlin, one Activity)
+ios/Sources/            the SwiftUI screen — macOS and iOS from one source
+ios/include/mina.h      the C interface as Swift sees it
+ios/build-macos.sh      cargo → swiftc → .app, no Xcode project
+ios/snapshot.sh         renders the form to a PNG, no window needed
+```
+
+## Run it on this Mac
+
+```sh
+./ios/build-macos.sh --run
+```
+
+That builds `shared/native` for the host, generates the form defaults from
+`.env.local` (same file and same keys the Gradle build reads), links one SwiftUI
+binary against `libmina_token_mobile.a` and wraps it in
+`ios/build/MinaTokenTransfer.app`. Drop `--run` to only print the bundle path.
+
+Prerequisites: Rust (`rustup`) and the Xcode command-line tools
+(`xcode-select --install`) — no Xcode project, no signing, no provisioning. The
+bundle is ad-hoc signed and runs from `ios/build/`.
+
+The first build is the slow one: it clones and compiles the whole proof-system
+stack, which takes tens of minutes. After that the script takes seconds unless
+the Rust sources change.
+
+### The screen
+
+Field for field the Android form (`android/.../activity_main.xml` and
+`MainActivity.kt`): the same order, labels, `#101018` background and `#8C66FF`
+accent, the same two progress bars — the header one scrolls out of sight during
+a long proving run, so it is mirrored under the send button — the same key that
+locks after a transfer and is only replaced through *Use a different key*, and
+the same monospaced result and five-line timing block.
+
+The Rust calls run on one serial queue, which stands in for the Android app's
+single-thread executor. Compile is a per-process `OnceLock`, so a second
+transfer in the same session pays only the proving time.
+
+Both actions carry an explicit fill (`FormButtonStyle`): the macOS default
+bordered style draws its chrome in a near-black grey that vanishes against
+`#101018`, which made them invisible for the app's first second, while they are
+still disabled.
+
+`MainActivity.kt` is the reference for behaviour. Anything visible in
+`ios/Sources/TransferView.swift` should match it.
+
+### Looking at the layout without a screen
+
+```sh
+./ios/snapshot.sh          # 620×900 into ios/build/snapshot.png
+```
+
+Renders the form through `ImageRenderer` — no window, no display, no screen
+recording permission, which is what makes it usable over ssh or from a
+sandboxed shell. Text fields, the progress bar and the checkbox come out as
+yellow placeholder blocks because they are AppKit-backed; the layout around
+them and whether a control is legible at all is what the image is for.
+
+`ImageRenderer` draws a `ScrollView` as an empty rectangle, which is why
+`TransferView.form` sits outside its scroll container.
+
+## Read a machine's proving budget
+
+The quickest measurement needs no keys, no network and no UI:
+
+```sh
+cd shared/native
+cargo run --release --bin mina
+```
+
+```
+compile : 367 ms
+witness :  47 ms
+proving : 1449 ms
+total   : 1863 ms
+proof   : 32248 bytes of transaction proof
+```
+
+Those are an **Apple M4** (4 P-cores + 6 E-cores, 32 GB, macOS 26.3), idle and
+cool. For scale, against the reference desktop (AMD Ryzen 9 7950X, 16 cores /
+32 threads):
+
+| | compile | witness | proving |
+| --- | --- | --- | --- |
+| Apple M4 | 367 ms | 47 ms | 1449 ms |
+| Ryzen 9 7950X | 488 ms | 60 ms | 1546 ms |
+| Pixel 3 (Snapdragon 845) | 2369 ms | ~200 ms | 10 992 ms (witness included) |
+
+A 10-core laptop chip matching a 32-thread desktop is the headline: proving is
+the parallel stage and the one that should favour the desktop, yet the two land
+within 7 %. Per-core throughput is carrying the M4.
+
+**Measure on an idle machine.** The first figures taken here were 617 / 73 /
+2951 ms — 1.8× off across every stage, because the run followed half an hour of
+`cargo build` saturating all ten cores. Nothing about the prover changed. See
+*Temperature dominates everything* in
+[../android/README.md](../android/README.md): the same effect, the same size,
+and the largest one measured on this app.
+
+The three stages are timed apart on purpose: the app reports witness solving
+inside its `Proving` figure, so this is how the two are told apart.
+
+To perform a real transfer from the terminal instead of the form, pass the
+request the app's form would collect:
+
+```sh
+cargo run --release --bin mina -- --transfer request.json
+```
+
+```json
+{
+  "senderPrivateKey": "EKE...",
+  "receiver": "B62q...",
+  "amount": "1000000000",
+  "tokenAddress": "B62q...",
+  "graphqlUrl": "https://mina-devnet-graphql.aurowallet.com/graphql",
+  "fundReceiver": true
+}
+```
+
+It prints the same JSON response the app displays, timings included, and
+submits to the node — the code path is literally the one `nativeTransfer`
+calls.
+
+A real Devnet transfer from the macOS app, same M4:
+
+```
+Compile:   365 ms
+Proving:  1521 ms
+Signature:   3 ms
+Submit:    521 ms
+Total:    2679 ms
+```
+
+`Total` runs wider than the four stages it lists — here by 269 ms. That gap is
+the preflight: parsing the request, deriving the keys and the token id, and the
+`fetch_network_snapshot` round trip for the fee-payer nonce and the receiver's
+account, all of which happen before the compile timer opens. It is network
+latency, not prover time.
+
+## The C interface
+
+`shared/native/src/ffi.rs` mirrors the JNI entry points as `extern "C"`
+functions — `mina_backend_info`, `mina_transfer`, `mina_token_balance` and
+`mina_string_free`. Each takes a JSON request and returns a JSON response, the
+returned pointer is owned by Rust, and a panic inside the prover is caught at
+the boundary and turned into `{"status":"error",…}` rather than crossing it.
+
+Swift reaches them through `ios/include/mina.h`, imported as a bridging header
+by the build script; `ios/Sources/MinaBackend.swift` is the whole of the glue.
+
+## On to the device
+
+The screen is already platform-agnostic (the one `#if os(macOS)` is the
+checkbox style), so an iOS build needs the target and an Xcode project:
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+cargo build --release --lib --target aarch64-apple-ios-sim   # or aarch64-apple-ios
+```
+
+Then an app target linking `target/<triple>/release/libmina_token_mobile.a`,
+with `ios/include/mina.h` as its bridging header and `ios/Sources/*.swift` as
+its sources. A free Apple ID is enough to run it on your own device, with
+builds expiring after seven days. Note the memory ceiling: proving peaks near
+560 MB of native heap, which is fine on an iPhone but worth watching against
+the jetsam limit on older ones.
+
+## Troubleshooting
+
+- **`Library not loaded: …libmina_token_mobile.dylib`** — something linked the
+  Android `cdylib` instead of the archive. The script passes the `.a` by path
+  for exactly this reason; `-lmina_token_mobile` would find the `.dylib` first.
+- **A control is invisible on the form** — a stock macOS control style against
+  `#101018`. Render it with `ios/snapshot.sh` and give it an explicit fill, the
+  way `FormButtonStyle` does for the two actions.
+- **`couldn't read …/assets/precomputed/*.bin`** — `build.rs` bakes absolute
+  paths into the embedding table, so a moved checkout leaves them stale.
+  `touch shared/native/assets/precomputed` reruns it.
+- **`was built for newer 'macOS' version`** — the Swift deployment target is
+  below the one rustc built the archive for. The script pins both to the host;
+  pass `MACOSX_DEPLOYMENT_TARGET` to cargo if you need an older floor.

@@ -13,3 +13,5 @@ shared/native/target/
 # Precomputed proving assets are committed (see android/README.md): the
 # SRS and Lagrange payloads are a few MB each and reproducible.
 android/app/src/main/assets/
+ios/build/
+ios/Sources/Defaults.generated.swift
