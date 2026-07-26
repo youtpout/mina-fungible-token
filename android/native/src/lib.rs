@@ -1459,6 +1459,28 @@ mod compile_bench {
 
         bench::<Fp>("Fp (Vesta)");
         bench::<Fq>("Fq (Pallas)");
+
+        // A dedicated squaring should beat a multiplication by roughly a
+        // quarter; if the two land together, `square_in_place` is just
+        // multiplying the element by itself.
+        fn bench_square<F: ark_ff::Field>(label: &str) {
+            let mut rng = rand::thread_rng();
+            let mut acc = F::rand(&mut rng);
+            let rounds = 20_000_000u64;
+            let started = Instant::now();
+            for _ in 0..rounds {
+                acc.square_in_place();
+            }
+            let elapsed = started.elapsed();
+            std::hint::black_box(acc);
+            eprintln!(
+                "{label:<12}: {:.1} ns/square",
+                elapsed.as_secs_f64() * 1e9 / rounds as f64,
+            );
+        }
+
+        bench_square::<Fp>("Fp square");
+        bench_square::<Fq>("Fq square");
     }
 
     fn rayon_threads() -> String {
