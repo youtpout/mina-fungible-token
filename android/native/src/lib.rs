@@ -1487,6 +1487,41 @@ mod compile_bench {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".to_owned())
     }
 
+    /// Poseidon throughput, the primitive the witness solver spends its
+    /// remaining time in and the one every ledger digest goes through.
+    #[test]
+    #[ignore = "benchmark: poseidon hashing"]
+    fn measure_poseidon_throughput() {
+        let mut rng = rand::thread_rng();
+        let inputs: Vec<Fp> = (0..7).map(|_| Fp::rand(&mut rng)).collect();
+        let rounds = 200_000u64;
+        let started = Instant::now();
+        let mut sink = Fp::from(0u64);
+        for _ in 0..rounds {
+            sink += poseidon::hash::hash_fields(&inputs);
+        }
+        let elapsed = started.elapsed();
+        std::hint::black_box(sink);
+        let per_hash = elapsed.as_secs_f64() * 1e6 / rounds as f64;
+        eprintln!("poseidon (7 inputs): {per_hash:.2} us/hash");
+
+        // Against the field multiplication, to see the ratio the permutation
+        // implies: Mina runs 55 full rounds of 3 x^7 S-boxes plus a 3x3 MDS.
+        let factor = Fp::rand(&mut rng);
+        let mut acc = Fp::rand(&mut rng);
+        let started = Instant::now();
+        for _ in 0..20_000_000u64 {
+            acc *= factor;
+        }
+        let mul_ns = started.elapsed().as_secs_f64() * 1e9 / 20_000_000.0;
+        std::hint::black_box(acc);
+        eprintln!("field multiplication: {mul_ns:.1} ns");
+        eprintln!(
+            "so one hash is worth {:.0} multiplications",
+            per_hash * 1000.0 / mul_ns
+        );
+    }
+
     /// Witness solving alone, the step the app counts inside its `proving`
     /// window but this benchmark's proving figure does not. Separating them
     /// says whether the app/bench gap is arithmetic (it would scale with the
