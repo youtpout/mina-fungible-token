@@ -64,14 +64,14 @@ android {
     kotlinOptions.jvmTarget = "17"
 }
 
-val nativeManifest = rootProject.file("native/Cargo.toml")
-val nativeLock = rootProject.file("native/Cargo.lock")
+val nativeManifest = rootProject.file("../shared/native/Cargo.toml")
+val nativeLock = rootProject.file("../shared/native/Cargo.lock")
 val nativeOutput = layout.projectDirectory.dir("src/main/jniLibs")
 
 val buildRustArm64 by tasks.registering(Exec::class) {
-    inputs.files(rootProject.fileTree("native/src"), nativeManifest, nativeLock)
+    inputs.files(rootProject.fileTree("../shared/native/src"), nativeManifest, nativeLock)
     outputs.dir(nativeOutput.dir("arm64-v8a"))
-    workingDir(rootProject.file("native"))
+    workingDir(rootProject.file("../shared/native"))
     commandLine(
         "cargo", "ndk",
         "--target", "arm64-v8a",

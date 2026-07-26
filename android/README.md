@@ -17,12 +17,12 @@ works offline until it submits the transaction.
 
 | Asset | Size | What it is |
 | --- | --- | --- |
-| `native/assets/fungible-token-1.1.0.json.gz` | 1.1 MB | the recorded circuits of the eleven `FungibleToken` methods, as exported from o1js |
-| `native/assets/fungible-token-1.1.0.cache.b64` | 35 KB | the program's **verifier indexes** — the verification-key side of the compile |
-| `native/assets/precomputed/srs-{vesta,pallas}.bin` | 6.4 MB | the two structured reference strings |
-| `native/assets/precomputed/lagrange-*.bin` | 1.5 MB | the Lagrange bases, per curve and domain size |
+| `shared/native/assets/fungible-token-1.1.0.json.gz` | 1.1 MB | the recorded circuits of the eleven `FungibleToken` methods, as exported from o1js |
+| `shared/native/assets/fungible-token-1.1.0.cache.b64` | 35 KB | the program's **verifier indexes** — the verification-key side of the compile |
+| `shared/native/assets/precomputed/srs-{vesta,pallas}.bin` | 6.4 MB | the two structured reference strings |
+| `shared/native/assets/precomputed/lagrange-*.bin` | 1.5 MB | the Lagrange bases, per curve and domain size |
 
-`native/build.rs` scans `assets/precomputed/` and emits the embedding table, so
+`shared/native/build.rs` scans `assets/precomputed/` and emits the embedding table, so
 the payloads are optional: an empty directory just means they get recomputed on
 first use and the app still builds. With them in place, startup compile drops
 from 6.3 s to 0.55 s on a desktop (see [Compile cost](#compile-cost)).
@@ -89,7 +89,7 @@ app/build/outputs/apk/debug/app-debug.apk   (~31 MB)
 
 The first build is slow — it clones and compiles the whole proof-system stack
 for `aarch64`, which takes tens of minutes and needs network access. Later
-builds reuse `native/target/` and take seconds unless the Rust sources change.
+builds reuse `shared/native/target/` and take seconds unless the Rust sources change.
 
 `assembleDebug` is signed with the standard Android debug key, so it installs
 directly. `assembleRelease` produces an **unsigned** APK — usable only if you
@@ -165,7 +165,7 @@ skips it entirely and only pays the proving time.
 The `proving` figure the app reports **includes solving the witness**, not just
 the prover: the timer opens before `generate_transfer_witness`. On a Pixel 3 that
 stage is ~200 ms and on a Dimensity 900 tablet ~105 ms. Use
-`cargo run --release --bin mina` (see [Desktop build](#desktop-build-macos-linux))
+`cargo run --release --bin mina` (see [../ios/README.md](../ios/README.md))
 to see the two apart.
 
 ### Temperature dominates everything
@@ -221,13 +221,13 @@ is the built-in default.
 ## Regenerating the embedded assets
 
 Both exports are `#[ignore]`d tests, run on the desktop, and both write into
-`native/assets/`.
+`shared/native/assets/`.
 
 **The verifier-index cache**, whenever the embedded program or the pickles
 compiler changes:
 
 ```sh
-cd android/native && MINA_CACHE_OUT=assets/fungible-token-1.1.0.cache.b64 cargo test --release export_program_cache -- --ignored --nocapture
+cd shared/native && MINA_CACHE_OUT=assets/fungible-token-1.1.0.cache.b64 cargo test --release export_program_cache -- --ignored --nocapture
 ```
 
 It prints the payload size and the cold/warm compile times, and fails if the
@@ -237,7 +237,7 @@ cache would change the verification key.
 therefore change only with the proof system itself:
 
 ```sh
-cd android/native && MINA_SRS_OUT=assets/precomputed cargo test --release export_srs_payloads -- --ignored --nocapture
+cd shared/native && MINA_SRS_OUT=assets/precomputed cargo test --release export_srs_payloads -- --ignored --nocapture
 ```
 
 These use the compact binary layout (`raw: true`): each curve point is stored as
@@ -276,7 +276,7 @@ submits.
 Measure the desktop row on any change with:
 
 ```sh
-cd android/native && cargo test --release measure_startup_compile -- --ignored --nocapture
+cd shared/native && cargo test --release measure_startup_compile -- --ignored --nocapture
 ```
 
 ## Fixtures and tools
@@ -286,18 +286,18 @@ node or a real proof. The fixture deploys and exercises the contract on an
 in-memory local chain with ephemeral keys, and submits nothing:
 
 ```sh
-npm run task -- android/tools/export-transfer-shape.ts
+npm run task -- shared/tools/export-transfer-shape.ts
 ```
 
 ```sh
-npm run task -- android/tools/export-call-data-vector.ts
+npm run task -- shared/tools/export-call-data-vector.ts
 ```
 
 The o1js side of the digest parity check can be recomputed from a command JSON
 dump with:
 
 ```sh
-npm run task -- android/tools/export-account-update-hash.ts <command.json> [updateIndex]
+npm run task -- shared/tools/export-account-update-hash.ts <command.json> [updateIndex]
 ```
 
 ## Troubleshooting
@@ -315,61 +315,9 @@ npm run task -- android/tools/export-account-update-hash.ts <command.json> [upda
 - **`adb` cannot see the phone on Linux** — udev rules are often missing for USB
   debugging. Use wireless debugging instead of chasing the rule.
 
-## Desktop build (macOS, Linux)
+## The Apple side
 
-The prover has no Android in it: the same crate builds a command-line binary
-that compiles the program, solves the transfer witness and proves it, which is
-the quickest way to read a machine's proving budget. On an Apple Silicon Mac
-this is the native target — no Xcode project, no cross-compilation, no
-provisioning.
-
-Prerequisites: Rust (`rustup`), and on macOS the command-line tools for the
-linker (`xcode-select --install`).
-
-```sh
-cd android/native
-cargo run --release --bin mina
-```
-
-```
-compile : 488 ms
-witness : 60 ms
-proving : 1546 ms
-total   : 2094 ms
-proof   : 32248 bytes of transaction proof
-```
-
-Those figures are a Ryzen 9 7950X; a Pixel 3 is roughly 5x slower and a
-Dimensity 900 tablet 3x. The three stages are timed apart on purpose: the app
-reports the witness solving inside its `Proving` figure, so this is how the two
-are told apart.
-
-To perform a real transfer, pass the request the app's form would collect:
-
-```sh
-cargo run --release --bin mina -- --transfer request.json
-```
-
-```json
-{
-  "senderPrivateKey": "EKE...",
-  "receiver": "B62q...",
-  "amount": "1000000000",
-  "tokenAddress": "B62q...",
-  "graphqlUrl": "https://mina-devnet-graphql.aurowallet.com/graphql",
-  "fundReceiver": true
-}
-```
-
-It prints the same JSON response the app displays, timings included, and
-submits to the node — the code path is literally the one `nativeTransfer`
-calls.
-
-### Towards iOS
-
-`src/ffi.rs` exposes the same three operations as `extern "C"` functions
-(`mina_backend_info`, `mina_transfer`, `mina_token_balance`, plus
-`mina_string_free`), and the crate builds a `staticlib` alongside the Android
-`cdylib`. That is what an Xcode target links against; a SwiftUI screen can then
-serve both iOS and macOS from one source. A free Apple ID is enough to run it
-on your own device, with builds expiring after seven days.
+The prover is not Android-specific — it lives in `shared/native` and the same
+crate serves a command-line benchmark, a macOS app and an iOS app through the
+`extern "C"` interface in `shared/native/src/ffi.rs`. See
+[../ios/README.md](../ios/README.md).
