@@ -128,7 +128,7 @@ cool. For scale, against the reference desktop (AMD Ryzen 9 7950X, 16 cores /
 | --- | --- | --- | --- |
 | Apple M4 | 367 ms | 47 ms | 1449 ms |
 | Ryzen 9 7950X | 488 ms | 60 ms | 1546 ms |
-| **iPhone 13 (A15)** | **~500 ms** | *included* | **~3000 ms** |
+| **iPhone 13 (A15)**, warm | **~500 ms** | *included* | **~3000 ms** |
 | Alldocube tablet (Cortex-A78) | 1561 ms | ~105 ms | 6644 ms |
 | Pixel 3 (Snapdragon 845) | 2369 ms | ~200 ms | 10 992 ms (witness included) |
 
@@ -144,6 +144,11 @@ pays — ~3 s against 1.5 — but that is 2.2× faster than the A78 tablet and 3
 the Pixel 3, and it puts a full on-device transfer inside four seconds of
 compute. The A15 figures come from the app itself, so `proving` includes witness
 solving; the CLI is what tells the two apart.
+
+The A15 row is a **warm** run — taken right after an Xcode build, which heats the
+chip as thoroughly as proving does. A cooler run should come in lower: on the
+Pixel 3 the same comparison was 12 408 ms at room temperature against 8421 ms
+chilled, a third off. Treat ~3 s as the ceiling for this chip, not its figure.
 
 **Measure on an idle machine.** The first figures taken here were 617 / 73 /
 2951 ms — 1.8× off across every stage, because the run followed half an hour of
@@ -244,8 +249,8 @@ builds and links, producing an 18 MB arm64 bundle with the prover and its
 embedded assets inside and no dynamic library to chase.
 
 Measured on an iPhone 13 (A15, 6 cores, 4 GB): **~500 ms compile, ~3 s
-proving** — the compile of a 32-thread desktop, and proving between the M4 and
-the A78 tablet. See [Read a machine's proving budget](#read-a-machines-proving-budget)
+proving**, on a chip warm from the build — the compile of a 32-thread desktop,
+and proving between the M4 and the A78 tablet. See [Read a machine's proving budget](#read-a-machines-proving-budget)
 for the full comparison.
 
 Two things to watch on a phone: proving peaks near 560 MB of native heap, which
