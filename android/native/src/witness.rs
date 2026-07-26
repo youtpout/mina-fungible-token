@@ -527,6 +527,13 @@ pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<Stri
     seed_amount_assertions(witness[12], &mut witness)?;
     seed_is_zero_assertions(circuit, &mut witness, &mut protected);
 
+    // The repair loop is a fixed point: once a pass leaves the witness
+    // untouched, no later pass can change it either, so the twenty passes are
+    // a bound rather than a cost. Each one takes ~42 ms on a Dimensity 900 and
+    // this transfer converges in two, which is where 864 ms of witness solving
+    // came from. `repair_constraint` reports whether it handled a constraint,
+    // not whether it changed anything, so the witness itself is the signal.
+    let mut previous = witness.clone();
     for _ in 0..20 {
         seed_amount_assertions(witness[12], &mut witness)?;
         seed_is_zero_assertions(circuit, &mut witness, &mut protected);
@@ -534,6 +541,10 @@ pub fn generate_transfer_witness(input: TransferWitnessInput) -> Result<Vec<Stri
             seed_is_zero_assertions(circuit, &mut witness, &mut protected);
             let _ = repair_constraint(constraint, &mut witness, &protected)?;
         }
+        if witness == previous {
+            break;
+        }
+        previous.copy_from_slice(&witness);
     }
     validate_witness(circuit, &witness)?;
     Ok(witness.into_iter().map(|value| value.to_string()).collect())
