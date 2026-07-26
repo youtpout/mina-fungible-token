@@ -1487,6 +1487,45 @@ mod compile_bench {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".to_owned())
     }
 
+    /// The same Pasta field multiplication, ark-ff against the Zcash
+    /// implementation. Two independent hand-written 4-limb Montgomery
+    /// routines: if they land together, the arithmetic is at its practical
+    /// limit on this core and generating a third one (fiat-crypto) will not
+    /// change it.
+    #[test]
+    #[ignore = "benchmark: ark-ff against pasta_curves on the same field"]
+    fn measure_against_pasta_curves() {
+        const ROUNDS: u64 = 20_000_000;
+        let mut rng = rand::thread_rng();
+
+        let mut ark = Fp::rand(&mut rng);
+        let ark_factor = Fp::rand(&mut rng);
+        let started = Instant::now();
+        for _ in 0..ROUNDS {
+            ark *= ark_factor;
+        }
+        let ark_elapsed = started.elapsed();
+        std::hint::black_box(ark);
+
+        // pasta_curves calls Vesta's base field `Fp` as well; same modulus.
+        let mut zcash = pasta_curves::Fp::from_raw([1, 2, 3, 4]);
+        let zcash_factor = pasta_curves::Fp::from_raw([5, 6, 7, 8]);
+        let started = Instant::now();
+        for _ in 0..ROUNDS {
+            zcash *= zcash_factor;
+        }
+        let zcash_elapsed = started.elapsed();
+        std::hint::black_box(zcash);
+
+        let per = |elapsed: std::time::Duration| elapsed.as_secs_f64() * 1e9 / ROUNDS as f64;
+        eprintln!("ark-ff        : {:.1} ns/mul", per(ark_elapsed));
+        eprintln!("pasta_curves  : {:.1} ns/mul", per(zcash_elapsed));
+        eprintln!(
+            "ratio         : {:.2}x",
+            ark_elapsed.as_secs_f64() / zcash_elapsed.as_secs_f64()
+        );
+    }
+
     /// Poseidon throughput, the primitive the witness solver spends its
     /// remaining time in and the one every ledger digest goes through.
     #[test]
